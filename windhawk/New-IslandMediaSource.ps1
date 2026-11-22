@@ -21,7 +21,7 @@ function Insert-Once([string]$Text, [string]$Anchor, [string]$Replacement) {
 
 $additions = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'IslandReadings.inc'))
 $anchor = 'void ReserveIslandAnchorSpace() {'
-$sourceText = Insert-Once $sourceText $anchor "[[clang::no_destroy]] static StackPanel chargeStripItems{nullptr};`nstatic constexpr double chargeStripWidth = 104.0;`n`n$anchor"
+$sourceText = Insert-Once $sourceText $anchor "[[clang::no_destroy]] static StackPanel chargeStripItems{nullptr};`nstatic constexpr double chargeStripWidth = 122.0;`n`n$anchor"
 $anchor = 'void UpdateRuntimeLayout(HWND hwnd,'
 $sourceText = Insert-Once $sourceText $anchor "$additions`n$anchor"
 $anchor = '                     g_settings.marginLeft + g_settings.marginRight);'

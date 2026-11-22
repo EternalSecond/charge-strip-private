@@ -41,6 +41,7 @@ internal sealed class Strip : ApplicationContext
     private readonly ResourcesModule resources;
     private readonly MediaModule media;
     private readonly ModuleStrip surface;
+    private ReadingsFlyout readingsFlyout;
     private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = 12000 };
     private readonly System.Windows.Forms.Timer inputTimer = new System.Windows.Forms.Timer { Interval = 150 };
     private string menuLanguage;
@@ -61,7 +62,7 @@ internal sealed class Strip : ApplicationContext
         media = new MediaModule(() => Current);
         surface = new ModuleStrip(this);
         media.Changed += () => { surface.UpdateDrawing(); if (editor != null) editor.SyncReadings(); };
-        resources.Changed += () => { UpdateExistingIsland(); surface.UpdateDrawing(); if (editor != null) editor.SyncReadings(); };
+        resources.Changed += () => { UpdateExistingIsland(); surface.UpdateDrawing(); if (readingsFlyout != null) readingsFlyout.Invalidate(); if (editor != null) editor.SyncReadings(); };
         stripMenu.Items.Add("Налаштування", null, (sender, args) => OpenSettings());
         stripMenu.Items.Add("Оновити", null, async (sender, args) => await RefreshReadings());
         stripMenu.Items.Add("Вийти", null, (sender, args) => ExitThread());
@@ -70,6 +71,7 @@ internal sealed class Strip : ApplicationContext
         bool initialRead = true;
         inputTimer.Tick += async (sender, args) =>
         {
+            if (Current.UseExistingIsland) ReadIslandClick();
             if (launchEditor || openRequest.WaitOne(0))
             {
                 launchEditor = false;
@@ -103,6 +105,7 @@ internal sealed class Strip : ApplicationContext
         media.Apply(!Current.UseExistingIsland && Current.ModuleVisible("media"));
         UpdateExistingIsland();
         SyncModuleSurface();
+        if (readingsFlyout != null) readingsFlyout.Invalidate();
         if (editor != null) editor.SyncReadings();
     }
 
@@ -122,6 +125,7 @@ internal sealed class Strip : ApplicationContext
             var lines = new List<string> { string.Join(",", battery), Current.Icons, Current.Text };
             foreach (var metric in metrics)
                 lines.Add(ResourceMetrics.Label(metric) + "\t" + ResourceReading.Value(metric, true));
+            if (Current.ModuleVisible("resources")) lines.Add("R");
             Directory.CreateDirectory(StripSettings.Folder);
             string pending = path + ".tmp";
             File.WriteAllLines(pending, lines);
@@ -130,6 +134,34 @@ internal sealed class Strip : ApplicationContext
         }
         catch (IOException) { }
         catch (UnauthorizedAccessException) { }
+    }
+
+    private void ReadIslandClick()
+    {
+        string path = Path.Combine(StripSettings.Folder, "island-click.txt");
+        string request;
+        try
+        {
+            if (!File.Exists(path)) return;
+            request = File.ReadAllText(path);
+            bool fresh = DateTime.UtcNow - File.GetLastWriteTimeUtc(path) < TimeSpan.FromSeconds(3);
+            File.Delete(path);
+            if (!fresh) return;
+        }
+        catch (IOException) { return; }
+        catch (UnauthorizedAccessException) { return; }
+        string[] fields = request.Split(',');
+        int x, y;
+        if (fields.Length != 3 || (fields[0] != "1" && fields[0] != "2") ||
+            !int.TryParse(fields[1], out x) || !int.TryParse(fields[2], out y)) return;
+        bool battery = fields[0] == "1";
+        bool alreadyOpen = readingsFlyout != null && readingsFlyout.Battery == battery;
+        if (readingsFlyout != null) readingsFlyout.Close();
+        if (alreadyOpen || !Current.ModuleVisible(battery ? "batteries" : "resources")) return;
+        readingsFlyout = new ReadingsFlyout(this, battery, new Point(x, y));
+        readingsFlyout.FormClosed += (sender, args) => { if (ReferenceEquals(readingsFlyout, sender)) readingsFlyout = null; };
+        readingsFlyout.Show();
+        readingsFlyout.Activate();
     }
 
     internal void SyncModuleSurface()
@@ -295,6 +327,7 @@ internal sealed class Strip : ApplicationContext
         {
             disposed = true;
             if (editor != null) editor.Dispose();
+            if (readingsFlyout != null) readingsFlyout.Dispose();
             timer.Dispose();
             inputTimer.Dispose();
             surface.Dispose();

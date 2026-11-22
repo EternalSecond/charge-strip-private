@@ -27,104 +27,119 @@ static std::wstring ChargeStripReadings() {
     return result;
 }
 
-static StackPanel MakeChargeStripReadings() {
-    StackPanel inlineReadings;
-    inlineReadings.Name(L"ChargeStrip_InlineReadings");
-    inlineReadings.Orientation(controls::Orientation::Horizontal);
-    inlineReadings.VerticalAlignment(VerticalAlignment::Center);
-    inlineReadings.Margin({8, 0, 8, 0});
+static std::vector<std::wstring> ChargeStripFields(std::wstring const& text, wchar_t separator) {
+    std::vector<std::wstring> result;
+    for (size_t start = 0;;) {
+        auto end = text.find(separator, start);
+        auto field = text.substr(start, end - start);
+        if (!field.empty() && field.back() == L'\r') field.pop_back();
+        result.push_back(std::move(field));
+        if (end == std::wstring::npos) return result;
+        start = end + 1;
+    }
+}
 
-    winrt::Windows::UI::Xaml::DispatcherTimer refresh;
-    refresh.Interval(std::chrono::milliseconds(1500));
-    auto redraw = [weak = winrt::make_weak(inlineReadings), last = std::wstring{}]() mutable {
-        auto target = weak.get();
-        if (!target) return;
-        auto data = ChargeStripReadings();
-        if (data == last) return;
-        last = data;
-        target.Children().Clear();
-        controls::ToolTipService::SetToolTip(target, nullptr);
-        target.Visibility(data.empty() ? Visibility::Collapsed : Visibility::Visible);
-        if (data.empty()) return;
-        std::vector<std::wstring> rows;
-        for (size_t start = 0; start < data.size();) {
-            size_t end = data.find(L'\n', start);
-            if (end == std::wstring::npos) end = data.size();
-            auto row = data.substr(start, end - start);
-            if (!row.empty() && row.back() == L'\r') row.pop_back();
-            rows.push_back(std::move(row));
-            start = end + 1;
-        }
-        if (rows.size() < 3) return;
-        auto tint = [](std::wstring const& hex, uint32_t fallback) {
-            uint32_t rgb = hex.size() == 7 && hex[0] == L'#' ? wcstoul(hex.c_str() + 1, nullptr, 16) : fallback;
-            return Brush(Color(255, (rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255));
-        };
-        auto accent = tint(rows[1], 0xC1BFC8);
-        auto ink = tint(rows[2], 0xFFF0E8);
-        std::wstring hint;
-        size_t start = 0;
-        for (int i = 0; i < 2 && start < rows[0].size(); ++i) {
-            auto end = rows[0].find(L',', start);
-            auto value = rows[0].substr(start, end - start);
-            start = end == std::wstring::npos ? rows[0].size() : end + 1;
-            int percent = std::clamp(static_cast<int>(wcstol(value.c_str(), nullptr, 10)), -1, 100);
-            Grid cell;
-            cell.Width(16);
-            cell.Height(9);
-            cell.Margin({2, 0, 1, 0});
-            cell.VerticalAlignment(VerticalAlignment::Center);
-            Border shell;
-            shell.Width(13);
-            shell.Height(9);
-            shell.CornerRadius({2, 2, 2, 2});
-            shell.HorizontalAlignment(HorizontalAlignment::Left);
-            shell.BorderBrush(accent);
-            shell.BorderThickness({1, 1, 1, 1});
-            Border fill;
-            fill.Width(9.0 * std::max(0, percent) / 100);
-            fill.Height(5);
-            fill.HorizontalAlignment(HorizontalAlignment::Left);
-            fill.VerticalAlignment(VerticalAlignment::Center);
-            fill.Margin({1, 0, 0, 0});
-            fill.Background(accent);
-            shell.Child(fill);
-            cell.Children().Append(shell);
-            Border terminal;
-            terminal.Width(2);
-            terminal.Height(4);
-            terminal.HorizontalAlignment(HorizontalAlignment::Right);
-            terminal.VerticalAlignment(VerticalAlignment::Center);
-            terminal.Background(accent);
-            cell.Children().Append(terminal);
-            target.Children().Append(cell);
-            if (!hint.empty()) hint += L"   ";
-            hint += (percent < 0 ? std::wstring(L"—") : std::to_wstring(percent) + L"%");
-        }
-        if (rows.size() > 3) {
-            StackPanel metrics;
-            metrics.Margin({6, 0, 2, 0});
-            metrics.VerticalAlignment(VerticalAlignment::Center);
-            for (size_t i = 3; i < rows.size(); ++i) {
-                auto divider = rows[i].find(L'\t');
-                if (divider == std::wstring::npos) continue;
-                std::wstring text = rows[i].substr(0, divider) + L"  " + rows[i].substr(divider + 1);
-                if (!hint.empty()) hint += L"\n";
-                hint += text;
-                if (i > 4) continue;
-                TextBlock metric;
-                metric.FontSize(10);
-                metric.Foreground(ink);
-                metric.Text(text);
-                metrics.Children().Append(metric);
-            }
-            target.Children().Append(metrics);
-        }
-        if (!hint.empty()) controls::ToolTipService::SetToolTip(target, winrt::box_value(winrt::hstring(hint)));
+static TextBlock ChargeStripText(std::wstring const& text, double size, uint32_t rgb) {
+    TextBlock label;
+    label.Text(text);
+    label.FontSize(size);
+    label.Foreground(Brush(Color(255, (rgb >> 16) & 255, (rgb >> 8) & 255, rgb & 255)));
+    label.TextTrimming(xaml::TextTrimming::CharacterEllipsis);
+    return label;
+}
+
+static void RequestChargeStripPanel(bool battery) {
+    wchar_t local[32768];
+    DWORD length = GetEnvironmentVariableW(L"LOCALAPPDATA", local, ARRAYSIZE(local));
+    if (!length || length >= ARRAYSIZE(local)) return;
+    POINT cursor{};
+    if (!GetCursorPos(&cursor)) return;
+    auto request = std::to_string(battery ? 1 : 2) + "," + std::to_string(cursor.x) + "," + std::to_string(cursor.y);
+    std::wstring path(local, length);
+    path += L"\\Charge Strip\\island-click.txt";
+    HANDLE file = CreateFileW(path.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file == INVALID_HANDLE_VALUE) return;
+    DWORD written = 0;
+    WriteFile(file, request.data(), static_cast<DWORD>(request.size()), &written, nullptr);
+    CloseHandle(file);
+}
+
+static StackPanel MakeChargeStripReadings() {
+    StackPanel strip;
+    strip.Name(L"ChargeStrip_InlineReadings");
+    strip.Orientation(controls::Orientation::Horizontal);
+    strip.VerticalAlignment(VerticalAlignment::Center);
+    auto makeButton = [](bool battery) {
+        controls::Button button;
+        button.Height(25);
+        button.Width(battery ? 44 : 57);
+        button.Margin({2, 0, 2, 0});
+        button.Padding({4, 0, 4, 0});
+        button.Background(Brush(Color(255, 42, 47, 50)));
+        button.BorderThickness({0, 0, 0, 0});
+        button.CornerRadius({9, 9, 9, 9});
+        button.Click([battery](auto const&, auto const&) {
+            try { RequestChargeStripPanel(battery); } catch (...) {}
+        });
+        return button;
     };
-    refresh.Tick([redraw](auto const&, auto const&) mutable { try { redraw(); } catch (...) {} });
-    inlineReadings.Loaded([refresh](auto const&, auto const&) { refresh.Start(); });
-    inlineReadings.Unloaded([refresh](auto const&, auto const&) { refresh.Stop(); });
-    refresh.Start();
-    return inlineReadings;
+    auto batteries = makeButton(true);
+    auto resources = makeButton(false);
+    strip.Children().Append(batteries);
+    strip.Children().Append(resources);
+    winrt::Windows::UI::Xaml::DispatcherTimer timer;
+    timer.Interval(std::chrono::milliseconds(1200));
+    timer.Tick([a = winrt::make_weak(batteries), b = winrt::make_weak(resources), last = std::wstring{}](auto const&, auto const&) mutable {
+        try {
+            auto battery = a.get();
+            auto resource = b.get();
+            if (!battery || !resource) return;
+            auto data = ChargeStripReadings();
+            if (data == last) return;
+            last = data;
+            auto rows = ChargeStripFields(data, L'\n');
+            auto values = ChargeStripFields(rows[0], L',');
+            StackPanel icons;
+            icons.Orientation(controls::Orientation::Horizontal);
+            for (auto const& value : values) {
+                if (value.empty()) continue;
+                int level = std::clamp(static_cast<int>(wcstol(value.c_str(), nullptr, 10)), -1, 100);
+                Border shell;
+                shell.Width(13);
+                shell.Height(8);
+                shell.Margin({1, 0, 2, 0});
+                shell.CornerRadius({2, 2, 2, 2});
+                auto ink = level >= 0 && level <= 25 ? Brush(Color(255, 238, 124, 115)) : Brush(Color(255, 162, 214, 196));
+                shell.BorderBrush(ink);
+                shell.BorderThickness({1, 1, 1, 1});
+                Border fill;
+                fill.Width(9.0 * std::max(0, level) / 100);
+                fill.Height(4);
+                fill.HorizontalAlignment(HorizontalAlignment::Left);
+                fill.VerticalAlignment(VerticalAlignment::Center);
+                fill.Margin({1, 0, 0, 0});
+                fill.Background(ink);
+                shell.Child(fill);
+                icons.Children().Append(shell);
+            }
+            battery.Content(icons);
+            battery.Visibility(icons.Children().Size() ? Visibility::Visible : Visibility::Collapsed);
+            StackPanel summary;
+            bool hasResources = false;
+            for (size_t i = 3; i < rows.size(); ++i) {
+                auto fields = ChargeStripFields(rows[i], L'\t');
+                if (fields.size() == 1 && fields[0] == L"R") hasResources = true;
+                if (fields.size() == 2 && summary.Children().Size() < 2)
+                    summary.Children().Append(ChargeStripText(fields[0] + L" " + fields[1], 9, 0xA7DDF0));
+            }
+            if (summary.Children().Size() == 0 && hasResources)
+                summary.Children().Append(ChargeStripText(L"PC", 11, 0xA7DDF0));
+            resource.Content(summary);
+            resource.Visibility(summary.Children().Size() ? Visibility::Visible : Visibility::Collapsed);
+        } catch (...) {}
+    });
+    strip.Loaded([timer](auto const&, auto const&) { timer.Start(); });
+    strip.Unloaded([timer](auto const&, auto const&) { timer.Stop(); });
+    timer.Start();
+    return strip;
 }

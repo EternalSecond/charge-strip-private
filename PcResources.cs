@@ -10,6 +10,141 @@ using System.Linq;
 using System.Net.NetworkInformation;
 using System.Runtime.InteropServices;
 
+internal sealed class ReadingsFlyout : Form
+{
+    private readonly Strip strip;
+    private readonly int count, columns, logicalWidth, logicalHeight;
+    private readonly Point anchor;
+    private readonly System.Windows.Forms.Timer dismiss = new System.Windows.Forms.Timer { Interval = 35 };
+    internal bool Battery { get; private set; }
+
+    internal ReadingsFlyout(Strip strip, bool battery, Point anchor)
+    {
+        this.strip = strip;
+        this.anchor = anchor;
+        Battery = battery;
+        Text = strip.Translate(battery ? "Батареї" : "Ресурси ПК");
+        count = battery ? strip.Readings.Count : strip.Current.VisibleMetrics(false).Count();
+        columns = !battery && count > 1 ? 2 : 1;
+        logicalWidth = battery ? 340 : 322;
+        logicalHeight = 54 + Math.Max(1, (count + columns - 1) / columns) * (battery ? 58 : 52);
+        FormBorderStyle = FormBorderStyle.None;
+        StartPosition = FormStartPosition.Manual;
+        ShowInTaskbar = false;
+        TopMost = true;
+        DoubleBuffered = true;
+        BackColor = Color.FromArgb(19, 23, 26);
+        Place(96);
+        dismiss.Tick += (sender, args) =>
+        {
+            if ((GetAsyncKeyState(27) & 0x8000) != 0 ||
+                (((GetAsyncKeyState(1) | GetAsyncKeyState(2)) & 0x8000) != 0 &&
+                !Bounds.Contains(Cursor.Position) && Math.Abs(Cursor.Position.X - anchor.X) > 18))
+                Close();
+        };
+    }
+
+    protected override CreateParams CreateParams
+    {
+        get { var p = base.CreateParams; p.ClassStyle |= 0x00020000; return p; }
+    }
+
+    private void Place(int dpi)
+    {
+        var work = Screen.FromPoint(anchor).WorkingArea;
+        float scale = Math.Min(dpi / 96f, Math.Min(work.Width / (float)logicalWidth, work.Height / (float)logicalHeight));
+        int width = (int)(logicalWidth * scale), height = (int)(logicalHeight * scale);
+        Bounds = new Rectangle(StripSettings.Clamp(anchor.X - width / 2, work.Left, work.Right - width),
+            StripSettings.Clamp(Math.Min(anchor.Y, work.Bottom) - height - 7, work.Top, work.Bottom - height), width, height);
+        using (var outline = StripAppearance.Rounded(ClientRectangle, 22 * scale))
+        {
+            Region previous = Region;
+            Region = new Region(outline);
+            if (previous != null) previous.Dispose();
+        }
+    }
+
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        Place(DeviceDpi);
+        dismiss.Start();
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        var g = e.Graphics;
+        g.ScaleTransform(Width / (float)logicalWidth, Height / (float)logicalHeight);
+        g.SmoothingMode = SmoothingMode.AntiAlias;
+        using (var heading = new Font("Segoe UI", 15, FontStyle.Bold, GraphicsUnit.Pixel))
+        using (var label = new Font("Segoe UI", 11, FontStyle.Regular, GraphicsUnit.Pixel))
+        using (var value = new Font("Segoe UI", 15, FontStyle.Bold, GraphicsUnit.Pixel))
+        using (var ink = new SolidBrush(Color.FromArgb(250, 245, 240)))
+        using (var muted = new SolidBrush(Color.FromArgb(174, 185, 189)))
+        using (var tileFill = new SolidBrush(Color.FromArgb(37, 43, 46)))
+        using (var rail = new SolidBrush(Color.FromArgb(66, 75, 80)))
+        using (var frame = new Pen(Color.FromArgb(58, 68, 73)))
+        using (var outline = StripAppearance.Rounded(new RectangleF(.5f, .5f, logicalWidth - 1, logicalHeight - 1), 22))
+        using (var truncate = new StringFormat { FormatFlags = StringFormatFlags.NoWrap, Trimming = StringTrimming.EllipsisCharacter })
+        {
+            g.DrawPath(frame, outline);
+            g.DrawString(Text, heading, ink, 17, 14);
+            var batteries = strip.Readings;
+            var metrics = strip.Current.VisibleMetrics(false).ToArray();
+            int visible = Math.Min(count, Battery ? batteries.Count : metrics.Length);
+            if (visible == 0) g.DrawString("—", value, muted, 17, 44);
+            int stride = Battery ? 58 : 52, width = (logicalWidth - 34 - (columns - 1) * 8) / columns;
+            for (int i = 0; i < visible; ++i)
+            {
+                int x = 17 + i % columns * (width + 8), y = 40 + i / columns * stride;
+                using (var tile = StripAppearance.Rounded(new RectangleF(x, y, width, stride - 7), 10))
+                    g.FillPath(tileFill, tile);
+                var metric = Battery ? ResourceMetric.None : metrics[i];
+                string title = Battery ? strip.Translate(batteries[i].Name) : strip.Translate(ResourceMetrics.Label(metric));
+                string number = Battery ? batteries[i].Level : strip.ResourceReading.Value(metric, false);
+                double? level = Battery ? batteries[i].Percent : strip.ResourceReading.Percent(metric);
+                if (!Battery && !level.HasValue && strip.ResourceReading.NetworkCapacity > 0 &&
+                    (metric == ResourceMetric.Download || metric == ResourceMetric.Upload))
+                    level = 100 * strip.ResourceReading.Rate(metric) / strip.ResourceReading.NetworkCapacity;
+                using (var accent = new SolidBrush(Accent(metric, level)))
+                {
+                    g.FillEllipse(accent, x + 9, y + 10, 5, 5);
+                    g.DrawString(title, label, muted, new RectangleF(x + 20, y + 4, width - 28, 16), truncate);
+                    g.DrawString(number, value, ink, x + 18, y + 17);
+                    if (Battery) g.DrawString(strip.Translate(batteries[i].Status), label, muted, x + 73, y + 21);
+                    if (!level.HasValue) continue;
+                    g.FillRectangle(rail, x + 10, y + stride - 15, width - 20, 3);
+                    g.FillRectangle(accent, x + 10, y + stride - 15,
+                        (float)((width - 20) * Math.Max(0, Math.Min(100, level.Value)) / 100), 3);
+                }
+            }
+        }
+    }
+
+    private static Color Accent(ResourceMetric metric, double? level)
+    {
+        switch (metric)
+        {
+            case ResourceMetric.Cpu: return Color.FromArgb(84, 200, 238);
+            case ResourceMetric.Ram: return Color.FromArgb(245, 185, 66);
+            case ResourceMetric.Gpu: return Color.FromArgb(239, 119, 115);
+            case ResourceMetric.Disk: return Color.FromArgb(113, 210, 186);
+            case ResourceMetric.Download: return Color.FromArgb(129, 172, 249);
+            case ResourceMetric.Upload: return Color.FromArgb(186, 164, 236);
+            default: return level <= 25 ? Color.FromArgb(239, 119, 115) : Color.FromArgb(121, 217, 191);
+        }
+    }
+
+    protected override void Dispose(bool disposing)
+    {
+        if (disposing) dismiss.Dispose();
+        base.Dispose(disposing);
+    }
+
+    [DllImport("user32.dll")] private static extern short GetAsyncKeyState(int key);
+}
+
 [Flags]
 public enum ResourceMetric { None = 0, Cpu = 1, Ram = 2, Gpu = 4, Disk = 8, Download = 16, Upload = 32 }
 

@@ -48,6 +48,8 @@ Choose **Numbers** or **Numbers + bars**, and set the bar color with the palette
 
 **Embed in existing Island Media Controls** uses Island Media Controls 1.0.0 by usho to place battery and PC readings between the media island and the native tray icons on horizontal taskbars. The readings have their own element beside the player in the mod's placement host. Charge Strip supplies battery levels and PC readings from a local file. The media island retains its playback controls and artwork. Charge Strip's own strip and media card are hidden in this mode.
 
+Click the battery button to see device names, charge and connection status. Click the resource button to see the selected panel metrics in a two-column dashboard with live readings. Both panels open above the taskbar.
+
 Run `windhawk\Build-IslandMedia.ps1` from PowerShell to build the integration against the installed mod source. Run `windhawk\Set-IslandMediaLibrary.ps1` once as administrator to apply it. Use its `-Restore` switch to restore the original Windhawk library. The integration preserves the original MIT attribution and requires Windhawk for this mode.
 
 ## Device compatibility
