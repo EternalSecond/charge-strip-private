@@ -12,8 +12,8 @@ if ($config.Version -ne '1.0.0') { throw 'Expected installed Island Media Contro
 
 $root = Join-Path (Split-Path $PSScriptRoot) 'build'
 $backup = Join-Path $root 'island-media-original-library.txt'
-$name = 'island-media-controls_1.0.0_charge-strip-tray-v5.dll'
-$previous = @('island-media-controls_1.0.0_charge-strip.dll', 'island-media-controls_1.0.0_charge-strip-tray.dll', 'island-media-controls_1.0.0_charge-strip-tray-v2.dll', 'island-media-controls_1.0.0_charge-strip-tray-v3.dll', 'island-media-controls_1.0.0_charge-strip-tray-v4.dll')
+$name = 'island-media-controls_1.0.0_charge-strip-tray-v7.dll'
+$previous = @('island-media-controls_1.0.0_charge-strip.dll', 'island-media-controls_1.0.0_charge-strip-tray.dll', 'island-media-controls_1.0.0_charge-strip-tray-v2.dll', 'island-media-controls_1.0.0_charge-strip-tray-v3.dll', 'island-media-controls_1.0.0_charge-strip-tray-v4.dll', 'island-media-controls_1.0.0_charge-strip-tray-v5.dll', 'island-media-controls_1.0.0_charge-strip-tray-v6.dll')
 $libraryDir = Join-Path $env:ProgramData 'Windhawk\Engine\Mods\64'
 if ($Restore) {
     $original = [IO.File]::ReadAllText($backup).Trim()

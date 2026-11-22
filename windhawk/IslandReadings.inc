@@ -75,7 +75,7 @@ static StackPanel MakeChargeStripReadings() {
         button.Width(battery ? 44 : 57);
         button.Margin({2, 0, 2, 0});
         button.Padding({4, 0, 4, 0});
-        button.Background(Brush(Color(255, 42, 47, 50)));
+        button.Background(Brush(Color(14, 237, 235, 239)));
         button.BorderThickness({0, 0, 0, 0});
         button.CornerRadius({9, 9, 9, 9});
         button.Click([battery](auto const&, auto const&) {
@@ -104,12 +104,46 @@ static StackPanel MakeChargeStripReadings() {
             for (auto const& value : values) {
                 if (value.empty()) continue;
                 int level = std::clamp(static_cast<int>(wcstol(value.c_str(), nullptr, 10)), -1, 100);
+                auto ink = Brush(Color(255, 237, 235, 239));
+                if (icons.Children().Size() == 0) {
+                    Grid headphones;
+                    headphones.Width(14);
+                    headphones.Height(13);
+                    headphones.Margin({1, 0, 4, 0});
+                    Border band;
+                    band.Width(11);
+                    band.Height(9);
+                    band.VerticalAlignment(VerticalAlignment::Top);
+                    band.CornerRadius({5, 5, 0, 0});
+                    band.BorderBrush(ink);
+                    band.BorderThickness({1.3, 1.3, 1.3, 0});
+                    headphones.Children().Append(band);
+                    for (auto side : {HorizontalAlignment::Left, HorizontalAlignment::Right}) {
+                        Border ear;
+                        ear.Width(3);
+                        ear.Height(5);
+                        ear.Margin({1, 6, 1, 0});
+                        ear.VerticalAlignment(VerticalAlignment::Top);
+                        ear.HorizontalAlignment(side);
+                        ear.CornerRadius({1, 1, 1, 1});
+                        ear.Background(ink);
+                        headphones.Children().Append(ear);
+                    }
+                    Border levelBar;
+                    levelBar.Width(10.0 * std::max(0, level) / 100);
+                    levelBar.Height(1);
+                    levelBar.VerticalAlignment(VerticalAlignment::Bottom);
+                    levelBar.Background(ink);
+                    headphones.Children().Append(levelBar);
+                    icons.Children().Append(headphones);
+                    continue;
+                }
                 Border shell;
                 shell.Width(13);
-                shell.Height(8);
+                shell.Height(9);
                 shell.Margin({1, 0, 2, 0});
+                shell.VerticalAlignment(VerticalAlignment::Center);
                 shell.CornerRadius({2, 2, 2, 2});
-                auto ink = level >= 0 && level <= 25 ? Brush(Color(255, 238, 124, 115)) : Brush(Color(255, 162, 214, 196));
                 shell.BorderBrush(ink);
                 shell.BorderThickness({1, 1, 1, 1});
                 Border fill;
@@ -130,10 +164,10 @@ static StackPanel MakeChargeStripReadings() {
                 auto fields = ChargeStripFields(rows[i], L'\t');
                 if (fields.size() == 1 && fields[0] == L"R") hasResources = true;
                 if (fields.size() == 2 && summary.Children().Size() < 2)
-                    summary.Children().Append(ChargeStripText(fields[0] + L" " + fields[1], 9, 0xA7DDF0));
+                    summary.Children().Append(ChargeStripText(fields[0] + L" " + fields[1], 9, 0xEDEBEF));
             }
             if (summary.Children().Size() == 0 && hasResources)
-                summary.Children().Append(ChargeStripText(L"PC", 11, 0xA7DDF0));
+                summary.Children().Append(ChargeStripText(L"PC", 11, 0xEDEBEF));
             resource.Content(summary);
             resource.Visibility(summary.Children().Size() ? Visibility::Visible : Visibility::Collapsed);
         } catch (...) {}

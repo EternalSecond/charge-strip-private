@@ -23,7 +23,7 @@ internal sealed class ReadingsFlyout : Form
         this.strip = strip;
         this.anchor = anchor;
         Battery = battery;
-        Text = strip.Translate(battery ? "Батареї" : "Ресурси ПК");
+        Text = battery ? "Batteries" : "PC Resources";
         count = battery ? strip.Readings.Count : strip.Current.VisibleMetrics(false).Count();
         columns = !battery && count > 1 ? 2 : 1;
         logicalWidth = battery ? 340 : 322;
@@ -101,7 +101,7 @@ internal sealed class ReadingsFlyout : Form
                 using (var tile = StripAppearance.Rounded(new RectangleF(x, y, width, stride - 7), 10))
                     g.FillPath(tileFill, tile);
                 var metric = Battery ? ResourceMetric.None : metrics[i];
-                string title = Battery ? strip.Translate(batteries[i].Name) : strip.Translate(ResourceMetrics.Label(metric));
+                string title = Localize.Text("en", Battery ? batteries[i].Name : ResourceMetrics.Label(metric));
                 string number = Battery ? batteries[i].Level : strip.ResourceReading.Value(metric, false);
                 double? level = Battery ? batteries[i].Percent : strip.ResourceReading.Percent(metric);
                 if (!Battery && !level.HasValue && strip.ResourceReading.NetworkCapacity > 0 &&
@@ -112,7 +112,7 @@ internal sealed class ReadingsFlyout : Form
                     g.FillEllipse(accent, x + 9, y + 10, 5, 5);
                     g.DrawString(title, label, muted, new RectangleF(x + 20, y + 4, width - 28, 16), truncate);
                     g.DrawString(number, value, ink, x + 18, y + 17);
-                    if (Battery) g.DrawString(strip.Translate(batteries[i].Status), label, muted, x + 73, y + 21);
+                    if (Battery) g.DrawString(Localize.Text("en", batteries[i].Status), label, muted, x + 73, y + 21);
                     if (!level.HasValue) continue;
                     g.FillRectangle(rail, x + 10, y + stride - 15, width - 20, 3);
                     g.FillRectangle(accent, x + 10, y + stride - 15,
