@@ -26,6 +26,7 @@ internal static class Localize
         { "Пауза", new[] { "Пауза", "Pause" } },
         { "Немає активного медіа", new[] { "Нет активного медиа", "No active media" } },
         { "Ресурси ПК", new[] { "Ресурсы ПК", "PC Resources" } },
+        { "Вбудувати в наявний Island Media Controls", new[] { "Встроить в существующий Island Media Controls", "Embed in existing Island Media Controls" } },
         { "Загальні", new[] { "Общие", "General" } },
         { "На смужці", new[] { "На полоске", "On the strip" } },
         { "У панелі", new[] { "В панели", "In the panel" } },

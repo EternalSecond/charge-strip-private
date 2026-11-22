@@ -44,6 +44,12 @@ Click the chip with a pulse line to open **PC Resources**. In **Settings → PC 
 
 Choose **Numbers** or **Numbers + bars**, and set the bar color with the palette or a `#RRGGBB` value. Bars show the share of capacity in use. Network bars use the combined link speed of active interfaces. GPU summarizes the busiest available hardware engine and shows a dash when Windows supplies no GPU data. The sampler collects only the metrics selected for either view. The panel opens by click and dismisses on Escape or an outside click.
 
+## Existing Windhawk island
+
+**Embed in existing Island Media Controls** uses the compact horizontal island from Island Media Controls 1.0.0 by usho. Charge Strip supplies selected battery levels and PC readings from a local file. The existing mod continues to render its media content. Charge Strip's own strip and media card are hidden in this mode.
+
+Run `windhawk\Build-IslandMedia.ps1` from PowerShell to build the integration against the installed mod source. Run `windhawk\Set-IslandMediaLibrary.ps1` once as administrator to apply it. Use its `-Restore` switch to restore the original Windhawk library. The integration preserves the original MIT attribution and requires Windhawk for this mode.
+
 ## Device compatibility
 
 | Device or source | Status |

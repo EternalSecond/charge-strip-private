@@ -11,6 +11,7 @@ using System.Xml.Serialization;
 
 public sealed class StripSettings
 {
+    public bool UseExistingIsland;
     internal static readonly string Folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Charge Strip");
     internal static readonly string FileName = Path.Combine(Folder, "settings.xml");
 
@@ -420,6 +421,7 @@ internal sealed class ResourceEditor : UserControl
 
 internal sealed class SettingsWindow : Form
 {
+    private readonly CheckBox existingIsland = new CheckBox { Text = "Вбудувати в наявний Island Media Controls", AutoSize = true };
     private readonly Strip strip;
     private readonly NumericUpDown zoom = Number("Масштаб", 60, 175), gap = Number("Відступ", 0, 24),
         alpha = Number("Фон", 35, 100);
@@ -514,6 +516,13 @@ internal sealed class SettingsWindow : Form
         moduleLayout.Controls.Add(arrows);
         column.Controls.Add(moduleLayout);
         column.Controls.Add(startup);
+        column.Controls.Add(existingIsland);
+        existingIsland.CheckedChanged += (sender, args) =>
+        {
+            if (loading) return;
+            strip.Current.UseExistingIsland = existingIsland.Checked;
+            strip.ApplySettings();
+        };
         modules.ItemCheck += (sender, args) =>
         {
             if (loading) return;
@@ -715,6 +724,7 @@ internal sealed class SettingsWindow : Form
     {
         loading = true;
         var settings = strip.Current;
+        existingIsland.Checked = settings.UseExistingIsland;
         zoom.Value = settings.Zoom;
         gap.Value = settings.Gap;
         alpha.Value = settings.Alpha;

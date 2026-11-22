@@ -61,7 +61,7 @@ internal sealed class Strip : ApplicationContext
         media = new MediaModule(() => Current);
         surface = new ModuleStrip(this);
         media.Changed += () => { surface.UpdateDrawing(); if (editor != null) editor.SyncReadings(); };
-        resources.Changed += () => { surface.UpdateDrawing(); if (editor != null) editor.SyncReadings(); };
+        resources.Changed += () => { UpdateExistingIsland(); surface.UpdateDrawing(); if (editor != null) editor.SyncReadings(); };
         stripMenu.Items.Add("Налаштування", null, (sender, args) => OpenSettings());
         stripMenu.Items.Add("Оновити", null, async (sender, args) => await RefreshReadings());
         stripMenu.Items.Add("Вийти", null, (sender, args) => ExitThread());
@@ -100,16 +100,47 @@ internal sealed class Strip : ApplicationContext
         }
         if (surface.Expanded != null && !Current.ModuleVisible(surface.Expanded)) CollapseIsland();
         resources.Apply();
-        media.Apply(Current.ModuleVisible("media"));
+        media.Apply(!Current.UseExistingIsland && Current.ModuleVisible("media"));
+        UpdateExistingIsland();
         SyncModuleSurface();
         if (editor != null) editor.SyncReadings();
     }
 
     internal MediaSnapshot MediaSnapshot { get { return media.Snapshot; } }
     internal Bitmap MediaArtwork { get { return media.Artwork; } }
+
+    private void UpdateExistingIsland()
+    {
+        string path = Path.Combine(StripSettings.Folder, "island-readings.txt");
+        try
+        {
+            if (!Current.UseExistingIsland) { File.Delete(path); return; }
+            var battery = Current.ModuleVisible("batteries")
+                ? Readings.Take(2).Select(row => row.Percent.GetValueOrDefault(-1).ToString()) : Enumerable.Empty<string>();
+            var metrics = Current.ModuleVisible("resources") ? Current.VisibleMetrics(true).ToArray() : new ResourceMetric[0];
+            if (Current.ModuleVisible("resources") && metrics.Length == 0) metrics = Current.VisibleMetrics(false).Take(2).ToArray();
+            var lines = new List<string> { string.Join(",", battery), Current.Icons, Current.Text };
+            foreach (var metric in metrics)
+                lines.Add(ResourceMetrics.Label(metric) + "\t" + ResourceReading.Value(metric, true));
+            Directory.CreateDirectory(StripSettings.Folder);
+            string pending = path + ".tmp";
+            File.WriteAllLines(pending, lines);
+            if (File.Exists(path)) File.Replace(pending, path, null);
+            else File.Move(pending, path);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+    }
+
     internal void SyncModuleSurface()
     {
         if (disposed) return;
+        if (Current.UseExistingIsland)
+        {
+            CollapseIsland();
+            surface.Hide();
+            return;
+        }
         Rectangle old = surface.VisibleBounds;
         surface.Arrange();
         if (old != surface.VisibleBounds)
