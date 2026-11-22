@@ -292,20 +292,18 @@ internal sealed class ResourcesModule : IDisposable
 {
     private const int ChipSize = 20, ChipAndGap = 26;
     private readonly Func<StripSettings> settings;
-    private readonly Action dismissBattery;
+
     private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = 1200 };
     private readonly ResourceSampler sampler = new ResourceSampler();
-    private ResourcePanel panel;
     private ResourceReading reading = new ResourceReading();
     private bool sampling, disposed;
     private ResourceMetric wanted;
     internal ResourceReading Reading { get { return reading; } }
     internal event Action Changed;
 
-    internal ResourcesModule(Func<StripSettings> settings, Action dismissBattery)
+    internal ResourcesModule(Func<StripSettings> settings)
     {
         this.settings = settings;
-        this.dismissBattery = dismissBattery;
         timer.Tick += async (sender, args) => await Sample();
     }
 
@@ -315,12 +313,10 @@ internal sealed class ResourcesModule : IDisposable
         var current = settings();
         if (!current.ModuleVisible("resources"))
         {
-            Close();
             SelectMetrics(ResourceMetric.None);
             return;
         }
         SelectMetrics(ResourceMetrics.All & ~(current.HiddenMetrics(true) & current.HiddenMetrics(false)));
-        if (panel != null) panel.UpdateReading(reading, current);
     }
 
     private async void SelectMetrics(ResourceMetric metrics)
@@ -342,8 +338,6 @@ internal sealed class ResourcesModule : IDisposable
             if (!disposed && requested == wanted)
             {
                 reading = result;
-                var current = settings();
-                if (panel != null) panel.UpdateReading(reading, current);
                 if (Changed != null) Changed();
             }
         }
@@ -409,127 +403,22 @@ internal sealed class ResourcesModule : IDisposable
         }
     }
 
-    internal void Open(Rectangle bounds)
-    {
-        if (panel != null) { Close(); return; }
-        dismissBattery();
-        if (bounds.IsEmpty) bounds = new Rectangle(Cursor.Position, new Size(1, 1));
-        panel = new ResourcePanel(reading, settings(), bounds);
-        panel.FormClosed += (sender, args) => { if (ReferenceEquals(panel, sender)) panel = null; };
-        panel.Show();
-        if (panel != null) panel.Activate();
-    }
-
-    internal void Close()
-    {
-        if (panel == null) return;
-        var current = panel;
-        panel = null;
-        current.Close();
-    }
-
     public void Dispose()
     {
         disposed = true;
         timer.Dispose();
-        Close();
         if (!sampling) sampler.Dispose();
     }
 }
 
-internal sealed class ResourcePanel : Form
+internal static class ResourcePanel
 {
-    private readonly Rectangle anchor;
-    private ResourceReading reading;
-    private StripSettings settings;
-    private readonly System.Windows.Forms.Timer fade = new System.Windows.Forms.Timer { Interval = 15 };
-    private readonly Stopwatch opening = new Stopwatch();
-    private bool active;
-
-    internal ResourcePanel(ResourceReading initial, StripSettings preferences, Rectangle anchor)
-    {
-        this.anchor = anchor;
-        Text = Localize.Text(preferences.Language, "Ресурси ПК");
-        AccessibleName = Text;
-        FormBorderStyle = FormBorderStyle.None;
-        ShowInTaskbar = false;
-        TopMost = true;
-        KeyPreview = true;
-        DoubleBuffered = true;
-        StartPosition = FormStartPosition.Manual;
-        Opacity = .62;
-        UpdateReading(initial, preferences);
-        Place(96);
-        fade.Tick += (sender, args) =>
-        {
-            double progress = Math.Min(1, opening.Elapsed.TotalMilliseconds / 110);
-            Opacity = .62 + .38 * progress;
-            if (progress >= 1) fade.Stop();
-        };
-    }
-
-    protected override void OnLoad(EventArgs e)
-    {
-        base.OnLoad(e);
-        Place(DeviceDpi);
-        Native.RoundCorners(Handle);
-    }
-
-    protected override void OnShown(EventArgs e)
-    {
-        base.OnShown(e);
-        opening.Start();
-        fade.Start();
-        active = true;
-    }
-
-    protected override void OnDeactivate(EventArgs e)
-    {
-        base.OnDeactivate(e);
-        if (active) Close();
-    }
-
-    protected override bool ProcessCmdKey(ref Message message, Keys keyData)
-    {
-        if (keyData == Keys.Escape) { Close(); return true; }
-        return base.ProcessCmdKey(ref message, keyData);
-    }
-
-    private void Place(int dpi)
-    {
-        Rectangle screen = Screen.FromRectangle(anchor).WorkingArea;
-        double scale = settings.Zoom / 100.0 * dpi / 96.0;
-        int width = Math.Min(screen.Width, (int)(302 * scale));
-        int height = Math.Min(screen.Height, (int)(ViewHeight(settings) * scale));
-        int left = StripSettings.Clamp(anchor.Right - width, screen.Left, screen.Right - width);
-        int top = StripSettings.Clamp(anchor.Top - height - 7, screen.Top, screen.Bottom - height);
-        Bounds = new Rectangle(left, top, width, height);
-    }
-
-    internal void UpdateReading(ResourceReading value, StripSettings current)
-    {
-        bool resize = settings != null && (settings.Zoom != current.Zoom || Height !=
-            Math.Min(Screen.FromRectangle(anchor).WorkingArea.Height, (int)(ViewHeight(current) * current.Zoom / 100.0 * DeviceDpi / 96.0)));
-        reading = value;
-        settings = current;
-        BackColor = StripSettings.PopupColor(current.Background, current.Alpha);
-        AccessibleDescription = value.Describe(current.VisibleMetrics(false), current.Language);
-        if (resize && IsHandleCreated) Place(DeviceDpi);
-        Invalidate();
-    }
-
-    private static int ViewHeight(StripSettings settings)
+    internal static int ViewHeight(StripSettings settings)
     {
         return 58 + Math.Max(1, settings.VisibleMetrics(false).Count()) * (settings.ResourceScales ? 36 : 27);
     }
 
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        base.OnPaint(e);
-        Draw(e.Graphics, ClientRectangle, reading, settings);
-    }
-
-    internal static void Draw(Graphics graphics, Rectangle bounds, ResourceReading reading, StripSettings settings)
+    internal static void Draw(Graphics graphics, Rectangle bounds, ResourceReading reading, StripSettings settings, bool embedded = false)
     {
         const int width = 302;
         int height = ViewHeight(settings);
@@ -537,7 +426,7 @@ internal sealed class ResourcePanel : Form
             graphics.DpiX / 96);
         if (scale <= 0) return;
         var state = graphics.Save();
-        graphics.TranslateTransform(bounds.X, bounds.Y);
+        graphics.TranslateTransform(bounds.X + (bounds.Width - width * scale) / 2, bounds.Y);
         graphics.ScaleTransform(scale, scale);
         graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
         Color ink = StripSettings.ColorOf(settings.Text);
@@ -554,8 +443,11 @@ internal sealed class ResourcePanel : Form
         using (var metric = new Font("Segoe UI", 14, FontStyle.Bold, GraphicsUnit.Pixel))
         using (var end = new StringFormat { Alignment = StringAlignment.Far })
         {
-            graphics.FillRectangle(body, 0, 0, width, height);
-            graphics.DrawRectangle(line, .5f, .5f, width - 1, height - 1);
+            if (!embedded)
+            {
+                graphics.FillRectangle(body, 0, 0, width, height);
+                graphics.DrawRectangle(line, .5f, .5f, width - 1, height - 1);
+            }
             graphics.FillRectangle(rose, 16, 17, 3, 15);
             graphics.DrawString(Localize.Text(settings.Language, "Ресурси ПК"), title, text, 26, 14);
             graphics.DrawLine(line, 16, 46, 286, 46);
@@ -579,9 +471,5 @@ internal sealed class ResourcePanel : Form
         graphics.Restore(state);
     }
 
-    protected override void Dispose(bool disposing)
-    {
-        if (disposing) fade.Dispose();
-        base.Dispose(disposing);
-    }
+
 }

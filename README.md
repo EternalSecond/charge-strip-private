@@ -20,7 +20,7 @@ The portable executable is unsigned. Windows may display a publisher warning. To
 
 | Action | Result |
 | --- | --- |
-| Left-click the battery module | Open the battery list |
+| Hover over the battery icons | Read device names and charge percentages |
 | Hover over Batteries | See the displayed device names and charge levels |
 | Right-click the strip | Open Settings, refresh, or exit |
 | Choose **Position → Left of the system tray** | Keep the right edge 6 pixels from the tray and grow left as modules are added |

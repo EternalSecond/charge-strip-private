@@ -10,7 +10,6 @@ using System.Windows.Forms;
 internal sealed class MediaModule : IDisposable
 {
     private readonly Func<StripSettings> preferences;
-    private readonly Action dismissOthers;
     private readonly Timer timer = new Timer { Interval = 250 };
     private MediaService service;
     private MediaCard panel;
@@ -20,10 +19,9 @@ internal sealed class MediaModule : IDisposable
     internal Bitmap Artwork { get; private set; }
     internal event Action Changed;
 
-    internal MediaModule(Func<StripSettings> preferences, Action dismissOthers)
+    internal MediaModule(Func<StripSettings> preferences)
     {
         this.preferences = preferences;
-        this.dismissOthers = dismissOthers;
         timer.Tick += (sender, args) => Update();
     }
 
@@ -91,18 +89,13 @@ internal sealed class MediaModule : IDisposable
         if (previous != null) previous.Dispose();
     }
 
-    internal void Open(Rectangle anchor)
+    internal void Open(Control host)
     {
-        if (panel != null) { Close(); return; }
-        if (service == null) return;
-        dismissOthers();
-        if (anchor.IsEmpty) anchor = new Rectangle(Cursor.Position, new Size(1, 1));
-        panel = new MediaCard(preferences(), anchor, service.Select, service.Command);
+        if (service == null || panel != null) return;
+        panel = new MediaCard(preferences(), service.Select, service.Command);
         panel.SetArtwork(Artwork);
         panel.UpdateSnapshot(snapshot);
-        panel.FormClosed += (sender, args) => { if (ReferenceEquals(panel, sender)) panel = null; };
-        panel.Show();
-        if (panel != null) panel.Activate();
+        host.Controls.Add(panel);
     }
 
     internal void Close()
@@ -110,7 +103,7 @@ internal sealed class MediaModule : IDisposable
         if (panel == null) return;
         var previous = panel;
         panel = null;
-        previous.Close();
+        previous.Dispose();
     }
 
     public void Dispose()
@@ -122,10 +115,9 @@ internal sealed class MediaModule : IDisposable
     }
 }
 
-internal sealed class MediaCard : Form
+internal sealed class MediaCard : UserControl
 {
     private readonly StripSettings settings;
-    private readonly Rectangle anchor;
     private readonly Action<string> select;
     private readonly Action<string, string, TimeSpan> command;
     private readonly PictureBox artwork = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, Dock = DockStyle.Fill };
@@ -140,28 +132,21 @@ internal sealed class MediaCard : Form
     private readonly Font titleFont, normalFont, controlFont;
     private readonly Color accent, outline;
     private MediaSnapshot snapshot = new MediaSnapshot();
-    private bool updating, active;
+    private bool updating;
     private string[] sourceIds = new string[0];
 
-    internal MediaCard(StripSettings settings, Rectangle anchor, Action<string> select, Action<string, string, TimeSpan> command)
+    internal MediaCard(StripSettings settings, Action<string> select, Action<string, string, TimeSpan> command)
     {
         this.settings = settings;
-        this.anchor = anchor;
         this.select = select;
         this.command = command;
         Text = L("Медіа");
         AccessibleName = Text;
-        ShowInTaskbar = false;
-        TopMost = true;
-        KeyPreview = true;
-        FormBorderStyle = FormBorderStyle.None;
-        StartPosition = FormStartPosition.Manual;
         DoubleBuffered = true;
         BackColor = StripAppearance.Surface(settings);
         ForeColor = StripSettings.ColorOf(settings.Text);
         accent = StripAppearance.Mix(StripSettings.ColorOf(settings.Icons), Color.FromArgb(202, 139, 159), .36);
         outline = StripAppearance.Mix(BackColor, accent, .31);
-        Opacity = .92 + settings.Alpha * .0007;
         float zoom = settings.Zoom / 100f;
         normalFont = new Font("Segoe UI", 9 * zoom);
         titleFont = new Font("Segoe UI", 13 * zoom, FontStyle.Bold);
@@ -228,45 +213,6 @@ internal sealed class MediaCard : Form
         controls.Controls.Add(next, 2, 0);
         layout.Controls.Add(controls, 0, 6);
         Controls.Add(layout);
-        Place(96);
-    }
-
-    internal static Rectangle PopupBounds(Rectangle anchor, Rectangle work, Size requested)
-    {
-        int width = Math.Min(work.Width, requested.Width);
-        int height = Math.Min(work.Height, requested.Height);
-        return new Rectangle(StripSettings.Clamp(anchor.Right - width, work.Left, work.Right - width),
-            StripSettings.Clamp(anchor.Top - height - 7, work.Top, work.Bottom - height), width, height);
-    }
-
-    private void Place(int dpi)
-    {
-        double scale = settings.Zoom / 100.0 * dpi / 96.0;
-        Bounds = PopupBounds(anchor, Screen.FromRectangle(anchor).WorkingArea,
-            new Size((int)(350 * scale), (int)(420 * scale)));
-    }
-
-    protected override void OnLoad(EventArgs e)
-    {
-        base.OnLoad(e);
-        Place(DeviceDpi);
-        Native.RoundCorners(Handle);
-    }
-
-    protected override CreateParams CreateParams
-    {
-        get
-        {
-            var parameters = base.CreateParams;
-            parameters.ClassStyle |= 0x00020000; // CS_DROPSHADOW on the flyout.
-            return parameters;
-        }
-    }
-
-    protected override void OnResize(EventArgs e)
-    {
-        base.OnResize(e);
-        if (settings != null) ApplyRoundedRegion(this, StripAppearance.CornerRadius);
     }
 
     private static void ApplyRoundedRegion(Control control, int radius)
@@ -278,28 +224,6 @@ internal sealed class MediaCard : Form
             control.Region = new Region(path);
             if (previous != null) previous.Dispose();
         }
-    }
-
-    protected override void OnPaint(PaintEventArgs e)
-    {
-        base.OnPaint(e);
-        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
-        using (var line = new Pen(outline))
-        using (var edge = StripAppearance.Rounded(new Rectangle(1, 1, Width - 2, Height - 2), StripAppearance.CornerRadius))
-            e.Graphics.DrawPath(line, edge);
-    }
-
-    protected override void OnShown(EventArgs e)
-    {
-        base.OnShown(e);
-        if (playPause.Enabled) ActiveControl = playPause;
-        active = true;
-    }
-    protected override void OnDeactivate(EventArgs e) { base.OnDeactivate(e); if (active) Close(); }
-    protected override bool ProcessCmdKey(ref Message message, Keys key)
-    {
-        if (key == Keys.Escape) { Close(); return true; }
-        return base.ProcessCmdKey(ref message, key);
     }
 
     private string L(string text) { return Localize.Text(settings.Language, text); }
