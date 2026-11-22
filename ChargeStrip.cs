@@ -176,12 +176,18 @@ internal sealed class Strip : ApplicationContext
         else OpenDetails(new Point(anchor.Right, anchor.Top - 5));
     }
 
-    internal void SaveModulePosition(string monitor, int x)
+    internal Rectangle ModuleBounds { get { return surface.VisibleBounds; } }
+    internal Screen ModuleScreen(string monitor) { return surface.PositionScreen(monitor); }
+
+    internal void SaveModulePosition(string monitor, int x, int y)
     {
         var target = draft ?? saved.Copy();
+        target.DockToTray = false;
         target.StripMonitor = monitor;
         target.StripX = x;
+        target.StripY = y;
         if (draft == null && Save(target)) saved = target;
+        if (editor != null) editor.SyncPosition();
         ApplySettings();
     }
 

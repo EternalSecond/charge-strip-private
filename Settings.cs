@@ -48,13 +48,17 @@ public sealed class StripSettings
     internal static readonly string[] ModuleIds = { "batteries", "media", "resources" };
     public string[] ModuleOrder = (string[])ModuleIds.Clone();
     public string[] HiddenModules = new string[0];
-    public int? StripX;
+    public bool? DockToTray;
+    public int? StripX, StripY;
     public string StripMonitor = "";
+    internal bool IsDocked { get { return DockToTray ?? !StripX.HasValue; } }
     // Old overlay settings are read for migration.
     [XmlElement("X")] public int? LegacyX;
+    [XmlElement("Y")] public int? LegacyY;
     [XmlElement("Monitor")] public string LegacyMonitor;
     [XmlElement("Automatic")] public bool LegacyAutomatic = true;
     public bool ShouldSerializeLegacyX() { return false; }
+    public bool ShouldSerializeLegacyY() { return false; }
     public bool ShouldSerializeLegacyMonitor() { return false; }
     public bool ShouldSerializeLegacyAutomatic() { return false; }
 
@@ -128,6 +132,7 @@ public sealed class StripSettings
                 if (!settings.StripX.HasValue && !settings.LegacyAutomatic && settings.LegacyX.HasValue)
                 {
                     settings.StripX = settings.LegacyX;
+                    settings.StripY = settings.LegacyY;
                     settings.StripMonitor = settings.LegacyMonitor ?? "";
                 }
                 settings.MaxDevices = Clamp(settings.MaxDevices, 1, 12);
@@ -433,7 +438,11 @@ internal sealed class SettingsWindow : Form
     private readonly TextBox[] hex = new TextBox[4];
     private readonly Button[] palette = new Button[4];
     private readonly Preview preview;
-    private readonly TabPage generalPage = new TabPage(), resourcePage = new TabPage();
+    private readonly TabPage generalPage = new TabPage(), resourcePage = new TabPage(), positionPage = new TabPage();
+    private readonly ComboBox positionMode = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 254 };
+    private readonly ComboBox positionMonitor = new ComboBox { DropDownStyle = ComboBoxStyle.DropDownList, Width = 254 };
+    private readonly NumericUpDown positionX = Number("X", 0, 0), positionY = Number("Y", 0, 0);
+    private Screen[] monitors;
     private readonly ResourceEditor resourceEditor;
     private bool loading;
 
@@ -507,14 +516,6 @@ internal sealed class SettingsWindow : Form
         arrows.Controls.AddRange(new Control[] { earlier, later });
         moduleLayout.Controls.Add(arrows);
         column.Controls.Add(moduleLayout);
-        var resetPosition = ButtonFor("Скинути позицію");
-        resetPosition.Click += (sender, args) =>
-        {
-            strip.Current.StripX = null;
-            strip.Current.StripMonitor = "";
-            strip.ApplySettings();
-        };
-        column.Controls.Add(resetPosition);
         column.Controls.Add(startup);
         modules.ItemCheck += (sender, args) =>
         {
@@ -580,9 +581,11 @@ internal sealed class SettingsWindow : Form
         generalPage.Controls.Add(general);
         resourceEditor = new ResourceEditor(strip, ValidateColors) { Dock = DockStyle.Fill };
         resourcePage.Controls.Add(resourceEditor);
-        generalPage.BackColor = resourcePage.BackColor = BackColor;
+        BuildPositionPage();
+        generalPage.BackColor = resourcePage.BackColor = positionPage.BackColor = BackColor;
         var tabs = new TabControl { Dock = DockStyle.Fill };
-        tabs.TabPages.AddRange(new[] { generalPage, resourcePage });
+        tabs.TabPages.AddRange(new[] { generalPage, resourcePage, positionPage });
+        tabs.Selected += (sender, args) => { if (args.TabPage == positionPage) SyncPosition(); };
         root.Controls.Add(tabs, 0, 1);
         root.SetColumnSpan(tabs, 2);
 
@@ -625,6 +628,96 @@ internal sealed class SettingsWindow : Form
             control.TextChanged += (sender, args) => AppearanceChanged();
         }
         Sync();
+    }
+
+    private void BuildPositionPage()
+    {
+        var options = new FlowLayoutPanel { Dock = DockStyle.Fill, FlowDirection = FlowDirection.TopDown,
+            WrapContents = false, Padding = new Padding(12) };
+        positionMode.AccessibleName = "Режим розташування";
+        positionMonitor.AccessibleName = "Монітор";
+        options.Controls.Add(Line("Режим розташування", positionMode));
+        options.Controls.Add(Line("Монітор", positionMonitor));
+        options.Controls.Add(Line("X", positionX));
+        options.Controls.Add(Line("Y", positionY));
+        var resetPosition = ButtonFor("Скинути позицію");
+        options.Controls.Add(resetPosition);
+        positionPage.Controls.Add(options);
+
+        positionMode.SelectedIndexChanged += (sender, args) =>
+        {
+            if (loading || positionMode.SelectedIndex < 0) return;
+            strip.Current.DockToTray = positionMode.SelectedIndex == 0;
+            if (!strip.Current.IsDocked) SetManualPosition();
+            SyncPosition();
+            strip.ApplySettings();
+        };
+        positionMonitor.SelectedIndexChanged += (sender, args) =>
+        {
+            if (loading || positionMonitor.SelectedIndex < 0) return;
+            loading = true;
+            UpdatePositionLimits(monitors[positionMonitor.SelectedIndex]);
+            loading = false;
+            SetManualPosition();
+        };
+        positionX.ValueChanged += (sender, args) => SetManualPosition();
+        positionY.ValueChanged += (sender, args) => SetManualPosition();
+        positionX.TextChanged += (sender, args) => SetManualPosition();
+        positionY.TextChanged += (sender, args) => SetManualPosition();
+        resetPosition.Click += (sender, args) =>
+        {
+            strip.Current.DockToTray = true;
+            strip.Current.StripX = strip.Current.StripY = null;
+            strip.Current.StripMonitor = "";
+            strip.ApplySettings();
+            SyncPosition();
+        };
+    }
+
+    private void SetManualPosition()
+    {
+        if (loading || strip.Current.IsDocked || positionMonitor.SelectedIndex < 0) return;
+        var settings = strip.Current;
+        string monitor = monitors[positionMonitor.SelectedIndex].DeviceName;
+        int x = ReadNumber(positionX, (int)positionX.Value);
+        int y = ReadNumber(positionY, (int)positionY.Value);
+        if (settings.StripMonitor == monitor && settings.StripX == x && settings.StripY == y) return;
+        settings.StripMonitor = monitor;
+        settings.StripX = x;
+        settings.StripY = y;
+        strip.ApplySettings();
+    }
+
+    private void UpdatePositionLimits(Screen screen)
+    {
+        positionX.Maximum = screen.Bounds.Width - 1;
+        positionY.Maximum = screen.Bounds.Height - 1;
+    }
+
+    internal void SyncPosition()
+    {
+        bool wasLoading = loading;
+        loading = true;
+        var settings = strip.Current;
+        var screen = strip.ModuleScreen(settings.StripMonitor);
+        monitors = Screen.AllScreens;
+        positionMonitor.Items.Clear();
+        for (int i = 0; i < monitors.Length; i++)
+        {
+            var bounds = monitors[i].Bounds;
+            positionMonitor.Items.Add(string.Format("{0} · {1} × {2}", i + 1, bounds.Width, bounds.Height));
+        }
+        positionMonitor.SelectedIndex = Array.FindIndex(monitors, monitor => monitor.DeviceName == screen.DeviceName);
+        positionMode.SelectedIndex = settings.IsDocked ? 0 : 1;
+        positionMonitor.Enabled = positionX.Enabled = positionY.Enabled = !settings.IsDocked;
+        UpdatePositionLimits(screen);
+        Rectangle visible = strip.ModuleBounds;
+        Point fallback = !visible.IsEmpty && screen.Bounds.Contains(visible.Location)
+            ? new Point(visible.Left - screen.Bounds.Left, visible.Top - screen.Bounds.Top)
+            : new Point(Math.Max(0, screen.Bounds.Width - 260), Math.Max(0, screen.WorkingArea.Bottom - screen.Bounds.Top - 40));
+        positionX.Value = StripSettings.Clamp(settings.StripX ?? fallback.X, 0, (int)positionX.Maximum);
+        positionY.Value = StripSettings.Clamp(settings.StripY ?? fallback.Y, 0, (int)positionY.Maximum);
+        loading = wasLoading;
     }
 
     internal void Sync()
@@ -682,7 +775,11 @@ internal sealed class SettingsWindow : Form
         Text = Translate("Налаштування");
         generalPage.Text = Translate("Загальні");
         resourcePage.Text = Translate("Ресурси ПК");
+        positionPage.Text = Translate("Позиція");
         foreach (var caption in captions) caption(code);
+        positionMode.Items.Clear();
+        positionMode.Items.AddRange(new object[] { Translate("Ліворуч від системного трея"), Translate("Ручна X/Y") });
+        SyncPosition();
         resourceEditor.Sync();
         for (int i = 0; i < hex.Length; i++)
         {

@@ -17,11 +17,17 @@ internal sealed class ModuleStrip : Form
     private readonly Timer timer = new Timer { Interval = 180 };
     private readonly List<KeyValuePair<string, Rectangle>> regions = new List<KeyValuePair<string, Rectangle>>();
     private Rectangle bar;
-    private int appRight, trayLeft;
+    private int appRight, dockRight;
     private bool scanning, measured, dragging;
-    private Point pointer;
-    private int origin;
+    private Point pointer, origin;
     internal bool IsMeasured { get { return measured; } }
+    internal Rectangle VisibleBounds { get { return Visible ? Bounds : Rectangle.Empty; } }
+
+    internal Screen PositionScreen(string monitor)
+    {
+        return Screen.AllScreens.FirstOrDefault(screen => screen.DeviceName == monitor)
+            ?? (bar.IsEmpty ? Screen.PrimaryScreen : Screen.FromRectangle(bar));
+    }
 
     internal ModuleStrip(Strip owner)
     {
@@ -59,7 +65,7 @@ internal sealed class ModuleStrip : Form
             if (IsDisposed) return;
             bar = layout.Bar;
             appRight = layout.AppRight;
-            trayLeft = layout.TrayLeft;
+            dockRight = layout.DockRight;
             measured = true;
             owner.SyncModuleSurface();
         }
@@ -68,17 +74,21 @@ internal sealed class ModuleStrip : Form
 
     internal bool Arrange()
     {
-        var modules = owner.Current.ModuleOrder.Where(owner.Current.ModuleVisible).ToArray();
-        if (!measured || bar.Height < 24 || modules.Length == 0 || StripDesktop.FullScreen(bar))
+        var settings = owner.Current;
+        var modules = settings.ModuleOrder.Where(settings.ModuleVisible).ToArray();
+        bool docked = settings.IsDocked;
+        var screen = PositionScreen(docked ? null : settings.StripMonitor);
+        if (!measured || modules.Length == 0 || StripDesktop.FullScreen(screen.Bounds) ||
+            (docked && (bar.Height < 24 || dockRight <= appRight)))
         {
             if (Visible) Hide();
             return false;
         }
-        int available = trayLeft - appRight;
-        var screen = Screen.FromRectangle(bar);
-        float requested = owner.Current.Zoom / 100f * StripDesktop.Dpi(screen.Bounds);
-        float effective = Math.Min(requested, (bar.Height - 4) / (float)HeightUnits);
-        int resourceCount = owner.Current.VisibleMetrics(true).Count();
+        int available = docked ? dockRight - appRight : screen.Bounds.Width;
+        float requested = settings.Zoom / 100f * StripDesktop.Dpi(screen.Bounds);
+        int maxHeight = docked ? bar.Height - 4 : screen.Bounds.Height;
+        float effective = Math.Min(requested, maxHeight / (float)HeightUnits);
+        int resourceCount = settings.VisibleMetrics(true).Count();
         int minimum = (int)Math.Ceiling(MinimumWidth(modules, resourceCount) * effective);
         if (available < minimum || effective < .55f)
         {
@@ -89,17 +99,29 @@ internal sealed class ModuleStrip : Form
         if (!Capture)
         {
             int width = Math.Min(available, (int)Math.Ceiling(IdealWidth(modules, resourceCount) * effective));
-            int left = owner.Current.StripX.HasValue &&
-                (string.IsNullOrEmpty(owner.Current.StripMonitor) || owner.Current.StripMonitor == screen.DeviceName)
-                ? screen.Bounds.Left + owner.Current.StripX.Value : trayLeft - width;
             int height = (int)Math.Round(HeightUnits * effective);
-            Bounds = new Rectangle(StripSettings.Clamp(left, appRight, trayLeft - width),
-                bar.Top + (bar.Height - height) / 2, width, height);
+            if (docked)
+                Bounds = new Rectangle(dockRight - width, bar.Top + (bar.Height - height) / 2, width, height);
+            else
+            {
+                Rectangle area = screen.Bounds;
+                int x = settings.StripX ?? area.Width - width;
+                int y = settings.StripY ?? (area.Contains(bar.Location) && !bar.IsEmpty
+                    ? bar.Top - area.Top + (bar.Height - height) / 2 : screen.WorkingArea.Bottom - area.Top - height);
+                Bounds = new Rectangle(Limit(area.Left + StripSettings.Clamp(x, 0, area.Width - 1),
+                    area.Top + StripSettings.Clamp(y, 0, area.Height - 1), area, width, height), new Size(width, height));
+            }
         }
         PaintLayer();
         if (!Visible) Show();
         StripDesktop.KeepAboveTaskbar(Handle, Bounds);
         return true;
+    }
+
+    private static Point Limit(int x, int y, Rectangle area, int width, int height)
+    {
+        return new Point(StripSettings.Clamp(x, area.Left, Math.Max(area.Left, area.Right - width)),
+            StripSettings.Clamp(y, area.Top, Math.Max(area.Top, area.Bottom - height)));
     }
 
     internal void UpdateDrawing()
@@ -217,7 +239,7 @@ internal sealed class ModuleStrip : Form
         base.OnMouseDown(e);
         if (e.Button != MouseButtons.Left) return;
         pointer = StripDesktop.MessagePoint();
-        origin = Left;
+        origin = Location;
         Capture = true;
         dragging = false;
     }
@@ -228,14 +250,17 @@ internal sealed class ModuleStrip : Form
         var tile = regions.FirstOrDefault(region => region.Value.Contains(e.Location));
         if (!Capture || e.Button != MouseButtons.Left)
         {
-            string hint = string.IsNullOrEmpty(tile.Key) ? owner.Translate("Перетягніть смужку") : owner.ModuleHint(tile.Key);
+            string hint = !string.IsNullOrEmpty(tile.Key) ? owner.ModuleHint(tile.Key) :
+                owner.Translate(owner.Current.IsDocked ? "Ліворуч від системного трея" : "Перетягніть смужку");
             if (toolTip.GetToolTip(this) != hint) toolTip.SetToolTip(this, hint);
             return;
         }
-        int delta = StripDesktop.MessagePoint().X - pointer.X;
-        if (!dragging && Math.Abs(delta) < 4) return;
+        Point cursor = StripDesktop.MessagePoint();
+        int dx = cursor.X - pointer.X, dy = cursor.Y - pointer.Y;
+        if (!dragging && Math.Abs(dx) < 4 && Math.Abs(dy) < 4) return;
         dragging = true;
-        Left = StripSettings.Clamp(origin + delta, appRight, trayLeft - Width);
+        if (owner.Current.IsDocked) return;
+        Location = Limit(origin.X + dx, origin.Y + dy, Screen.FromPoint(cursor).Bounds, Width, Height);
         PaintLayer();
     }
 
@@ -247,8 +272,9 @@ internal sealed class ModuleStrip : Form
         Capture = false;
         if (dragging)
         {
+            if (owner.Current.IsDocked) return;
             var screen = Screen.FromRectangle(Bounds);
-            owner.SaveModulePosition(screen.DeviceName, Left - screen.Bounds.Left);
+            owner.SaveModulePosition(screen.DeviceName, Left - screen.Bounds.Left, Top - screen.Bounds.Top);
             return;
         }
         var tile = regions.FirstOrDefault(region => region.Value.Contains(e.Location));
@@ -264,7 +290,8 @@ internal sealed class ModuleStrip : Form
 
 internal static class StripDesktop
 {
-    internal struct Layout { public Rectangle Bar; public int AppRight, TrayLeft; }
+    internal struct Layout { public Rectangle Bar; public int AppRight, DockRight; }
+    private const int TrayGap = 6;
     [StructLayout(LayoutKind.Sequential)] private struct Rect { public int Left, Top, Right, Bottom; }
     [StructLayout(LayoutKind.Sequential)] private struct Blend { public byte Op, Flags, Alpha, Format; }
 
@@ -274,22 +301,32 @@ internal static class StripDesktop
         Rect outer, notify;
         if (shell == IntPtr.Zero || !GetWindowRect(shell, out outer) || outer.Bottom - outer.Top < 24 ||
             outer.Bottom - outer.Top > outer.Right - outer.Left) return new Layout();
+        var layout = new Layout { Bar = Rectangle.FromLTRB(outer.Left, outer.Top, outer.Right, outer.Bottom) };
         IntPtr tray = FindWindowEx(shell, IntPtr.Zero, "TrayNotifyWnd", null);
-        int right = tray != IntPtr.Zero && GetWindowRect(tray, out notify) && notify.Left > outer.Left + 100
-            ? notify.Left - 5 : outer.Right - 290;
-        int last = 0;
+        if (tray == IntPtr.Zero || !GetWindowRect(tray, out notify) || notify.Left <= outer.Left ||
+            notify.Left >= outer.Right || notify.Right <= notify.Left) return layout;
+        int last = 0, firstTrayIcon = int.MaxValue;
         try
         {
-            var condition = new PropertyCondition(AutomationElement.ClassNameProperty, "Taskbar.TaskListButtonAutomationPeer");
-            var buttons = AutomationElement.RootElement.FindAll(TreeScope.Descendants, condition);
+            var condition = new OrCondition(
+                new PropertyCondition(AutomationElement.ClassNameProperty, "Taskbar.TaskListButtonAutomationPeer"),
+                new PropertyCondition(AutomationElement.AutomationIdProperty, "SystemTrayIcon"));
+            var buttons = AutomationElement.FromHandle(shell).FindAll(TreeScope.Descendants, condition);
             foreach (AutomationElement button in buttons)
             {
                 try
                 {
-                    var bounds = button.Current.BoundingRectangle;
-                    if (!bounds.IsEmpty && bounds.Top >= outer.Top - 8 && bounds.Bottom <= outer.Bottom + 8 &&
-                        bounds.Right > outer.Left && bounds.Right <= right)
-                        last = Math.Max(last, (int)Math.Ceiling(bounds.Right));
+                    var current = button.Current;
+                    var bounds = current.BoundingRectangle;
+                    if (bounds.IsEmpty || current.IsOffscreen || bounds.Top < outer.Top - 8 ||
+                        bounds.Bottom > outer.Bottom + 8 || bounds.Right <= outer.Left || bounds.Right > outer.Right)
+                        continue;
+                    if (current.AutomationId == "SystemTrayIcon")
+                    {
+                        if (bounds.Left >= notify.Left)
+                            firstTrayIcon = Math.Min(firstTrayIcon, (int)Math.Floor(bounds.Left));
+                    }
+                    else last = Math.Max(last, (int)Math.Ceiling(bounds.Right));
                 }
                 catch (ElementNotAvailableException) { }
             }
@@ -297,18 +334,21 @@ internal static class StripDesktop
         catch (ElementNotAvailableException) { }
         catch (COMException) { }
         catch (InvalidOperationException) { }
-        if (last == 0) return new Layout(); // Without a measured gap, fall back to the native tray.
-        return new Layout { Bar = Rectangle.FromLTRB(outer.Left, outer.Top, outer.Right, outer.Bottom),
-            AppRight = last + 6, TrayLeft = right };
+        if (last != 0)
+        {
+            layout.AppRight = last + 6;
+            // TrayNotifyWnd can start before the visible tray on a customized taskbar.
+            layout.DockRight = (firstTrayIcon == int.MaxValue ? notify.Left : firstTrayIcon) - TrayGap;
+        }
+        return layout;
     }
 
-    internal static bool FullScreen(Rectangle bar)
+    internal static bool FullScreen(Rectangle screen)
     {
         IntPtr active = GetForegroundWindow();
         Rect rect;
         if (active == IntPtr.Zero || active == GetDesktopWindow() || active == GetShellWindow() ||
             !GetWindowRect(active, out rect)) return false;
-        var screen = Screen.FromRectangle(bar).Bounds;
         return rect.Left <= screen.Left && rect.Top <= screen.Top && rect.Right >= screen.Right && rect.Bottom >= screen.Bottom;
     }
 

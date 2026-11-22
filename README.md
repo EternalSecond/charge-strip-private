@@ -23,7 +23,8 @@ The portable executable is unsigned. Windows may display a publisher warning. To
 | Left-click the battery module | Open the battery list |
 | Hover over the icon | See the first selected device and its percentage |
 | Right-click the strip or a tray icon | Open Settings, refresh, or exit |
-| Drag the strip by its left edge | Move it within the available taskbar gap |
+| Choose **Position → Left of the system tray** | Keep the right edge 6 pixels from the tray and grow left as modules are added |
+| Choose **Position → Manual X/Y** | Select a monitor and enter offsets in pixels, or drag the strip |
 | Check modules and use the arrows | Toggle Batteries, Media, and PC Resources and order them from left to right. Changes appear immediately in the preview and on the taskbar. |
 | Check devices, use the arrows and set a limit | Choose which readings appear. The first selected device drives the tray icon. |
 | Enable **Show a number on the tray icon** | Use a percentage instead of a filled battery symbol |
