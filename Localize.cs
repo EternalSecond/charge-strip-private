@@ -8,6 +8,14 @@ internal static class Localize
 
     private static readonly Dictionary<string, string[]> Translations = new Dictionary<string, string[]>
     {
+        { "Медіа", new[] { "Медиа", "Media" } },
+        { "Джерело медіа", new[] { "Источник медиа", "Media source" } },
+        { "Позиція відтворення", new[] { "Позиция воспроизведения", "Playback position" } },
+        { "Попередній", new[] { "Предыдущий", "Previous" } },
+        { "Наступний", new[] { "Следующий", "Next" } },
+        { "Відтворити", new[] { "Воспроизвести", "Play" } },
+        { "Пауза", new[] { "Пауза", "Pause" } },
+        { "Немає активного медіа", new[] { "Нет активного медиа", "No active media" } },
         { "Ресурси ПК", new[] { "Ресурсы ПК", "PC Resources" } },
         { "Лише іконка ресурсів", new[] { "Только значок ресурсов", "Resources icon only" } },
         { "Системний диск", new[] { "Системный диск", "System drive" } },

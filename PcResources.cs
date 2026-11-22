@@ -292,22 +292,33 @@ internal sealed class ResourcesModule : IDisposable
                 graphics.DrawLine(pen, 29, 21, 32, 21);
                 graphics.DrawString(number, font, fill, new RectangleF(3, 4, 26, 24), format);
             }
-            else
-            {
-                graphics.DrawRectangle(pen, 7, 7, 18, 18);
-                graphics.DrawRectangle(pen, 12, 12, 8, 8);
-                foreach (int side in new[] { 11, 16, 21 })
-                {
-                    graphics.DrawLine(pen, side, 3, side, 7);
-                    graphics.DrawLine(pen, side, 25, side, 29);
-                    graphics.DrawLine(pen, 3, side, 7, side);
-                    graphics.DrawLine(pen, 25, side, 29, side);
-                }
-            }
+            else DrawChip(graphics, new RectangleF(0, 0, 32, 32), accent);
             IntPtr handle = bitmap.GetHicon();
             try { using (var borrowed = Icon.FromHandle(handle)) return (Icon)borrowed.Clone(); }
             finally { Native.DestroyIcon(handle); }
         }
+    }
+
+    internal static void DrawChip(Graphics graphics, RectangleF bounds, Color accent)
+    {
+        var state = graphics.Save();
+        graphics.TranslateTransform(bounds.X, bounds.Y);
+        graphics.ScaleTransform(bounds.Width / 32f, bounds.Height / 32f);
+        graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using (var outline = new Pen(accent, 1.7f) { LineJoin = LineJoin.Round, StartCap = LineCap.Round, EndCap = LineCap.Round })
+        {
+            graphics.DrawRectangle(outline, 6, 6, 20, 20);
+            foreach (int pin in new[] { 11, 16, 21 })
+            {
+                graphics.DrawLine(outline, pin, 2, pin, 6);
+                graphics.DrawLine(outline, pin, 26, pin, 30);
+                graphics.DrawLine(outline, 2, pin, 6, pin);
+                graphics.DrawLine(outline, 26, pin, 30, pin);
+            }
+            graphics.DrawLines(outline, new[] { new Point(9, 17), new Point(13, 17), new Point(15, 11),
+                new Point(18, 22), new Point(20, 17), new Point(23, 17) });
+        }
+        graphics.Restore(state);
     }
 
     private void Toggle()

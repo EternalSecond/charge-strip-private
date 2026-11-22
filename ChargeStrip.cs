@@ -43,6 +43,7 @@ internal sealed class Strip : ApplicationContext
     private readonly ContextMenuStrip details = new ContextMenuStrip();
     private readonly ContextMenuStrip trayMenu = new ContextMenuStrip();
     private readonly ResourcesModule resources;
+    private readonly MediaModule media;
     private readonly SystemTrayIcon tray = new SystemTrayIcon();
     private readonly Font popupHeaderFont = new Font("Segoe UI", 10, FontStyle.Bold);
     private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = 12000 };
@@ -62,7 +63,8 @@ internal sealed class Strip : ApplicationContext
     public Strip(EventWaitHandle openRequest, bool launchEditor)
     {
         saved = StripSettings.Load() ?? new StripSettings();
-        resources = new ResourcesModule(() => Current, () => details.Close(), OpenSettings);
+        resources = new ResourcesModule(() => Current, () => { details.Close(); if (media != null) media.Close(); }, OpenSettings);
+        media = new MediaModule(() => Current, () => { details.Close(); resources.Close(); });
         details.ShowImageMargin = false;
         details.Renderer = new ToolStripProfessionalRenderer(new MenuColors()) { RoundedEdges = false };
         details.ForeColor = TextColor;
@@ -188,6 +190,7 @@ internal sealed class Strip : ApplicationContext
     internal void OpenSettings()
     {
         resources.Close();
+        media.Close();
         details.Close();
         if (editor == null)
         {
@@ -275,6 +278,7 @@ internal sealed class Strip : ApplicationContext
     internal void OpenDetails(Point point)
     {
         resources.Close();
+        media.Close();
         if (details.Visible) { details.Close(); return; }
         tray.PrepareMenu();
         details.Show(point, ToolStripDropDownDirection.AboveLeft);
@@ -375,6 +379,7 @@ internal sealed class Strip : ApplicationContext
             timer.Dispose();
             inputTimer.Dispose();
             resources.Dispose();
+            media.Dispose();
             details.Dispose();
             popupHeaderFont.Dispose();
             tray.Dispose();

@@ -11,7 +11,7 @@ if exist "%output%\ChargeStrip.exe" goto launch
 
 :build
 if not exist "%output%" mkdir "%output%"
-"%compiler%" /nologo /target:winexe /platform:x64 /optimize+ /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:"%output%\ChargeStrip.exe" "%~dp0ChargeStrip.cs" "%~dp0Batteries.cs" "%~dp0Settings.cs" "%~dp0Localize.cs" "%~dp0SystemTrayIcon.cs" "%~dp0PcResources.cs"
+"%compiler%" /nologo /target:winexe /platform:x64 /optimize+ /r:System.Windows.Forms.dll /r:System.Drawing.dll /out:"%output%\ChargeStrip.exe" "%~dp0ChargeStrip.cs" "%~dp0Batteries.cs" "%~dp0Settings.cs" "%~dp0Localize.cs" "%~dp0SystemTrayIcon.cs" "%~dp0PcResources.cs" "%~dp0MediaSessions.cs" "%~dp0MediaPanel.cs"
 if errorlevel 1 (
     if /i not "%~1"=="/package" pause
     exit /b 1
