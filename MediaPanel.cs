@@ -1,8 +1,10 @@
-﻿using System;
+using System;
 using System.Drawing;
+using System.Drawing.Drawing2D;
 using System.Globalization;
 using System.IO;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows.Forms;
 
 internal sealed class MediaModule : IDisposable
@@ -11,9 +13,6 @@ internal sealed class MediaModule : IDisposable
     private readonly Action dismissOthers;
     private readonly Timer timer = new Timer { Interval = 250 };
     private MediaService service;
-    private bool standalone;
-    private SystemTrayIcon icon;
-    private Icon note;
     private MediaCard panel;
     private MediaSnapshot snapshot = new MediaSnapshot();
     private byte[] decodedArtwork;
@@ -28,18 +27,16 @@ internal sealed class MediaModule : IDisposable
         timer.Tick += (sender, args) => Update();
     }
 
-    internal void Apply(bool enabled, bool useTray)
+    internal void Apply(bool enabled)
     {
         if (!enabled)
         {
             Close();
             timer.Stop();
-            if (icon != null) { icon.Dispose(); icon = null; }
             if (service != null) { service.Dispose(); service = null; }
-            if (Artwork != null) { Artwork.Dispose(); Artwork = null; }
+            SetArtwork(null);
             snapshot = new MediaSnapshot();
             decodedArtwork = null;
-            standalone = false;
             return;
         }
         if (service == null)
@@ -47,33 +44,7 @@ internal sealed class MediaModule : IDisposable
             service = new MediaService();
             timer.Start();
         }
-        if (standalone != useTray || useTray && icon == null)
-        {
-            standalone = useTray;
-            if (useTray)
-            {
-                if (note == null) note = CreateNote();
-                icon = new SystemTrayIcon(3, "Charge Strip Media");
-                icon.Activated += () => Open(icon.Bounds);
-                icon.Update(note, L("Медіа"));
-            }
-            else if (icon != null) { icon.Dispose(); icon = null; }
-        }
         Update();
-    }
-
-    private static Icon CreateNote()
-    {
-        using (var bitmap = new Bitmap(32, 32))
-        using (var g = Graphics.FromImage(bitmap))
-        using (var brush = new SolidBrush(Color.FromArgb(222, 177, 191)))
-        using (var font = new Font("Segoe UI", 25, FontStyle.Bold, GraphicsUnit.Pixel))
-        {
-            g.DrawString("♪", font, brush, new PointF(3, 0));
-            IntPtr handle = bitmap.GetHicon();
-            try { using (var borrowed = Icon.FromHandle(handle)) return (Icon)borrowed.Clone(); }
-            finally { Native.DestroyIcon(handle); }
-        }
     }
 
     private void Update()
@@ -85,37 +56,51 @@ internal sealed class MediaModule : IDisposable
             snapshot = next;
             if (!ReferenceEquals(decodedArtwork, next.Artwork))
             {
+                bool changedTrack = decodedArtwork != null && next.Artwork == null;
                 decodedArtwork = next.Artwork;
-                Bitmap previous = Artwork;
-                Artwork = null;
-                if (decodedArtwork != null)
-                {
-                    using (var stream = new MemoryStream(decodedArtwork))
-                    using (var image = Image.FromStream(stream))
-                        Artwork = new Bitmap(image);
-                }
-                if (panel != null) panel.SetArtwork(Artwork);
-                if (previous != null) previous.Dispose();
+                if (changedTrack) SetArtwork(null);
+                if (decodedArtwork != null) PrepareArtwork(decodedArtwork, service);
             }
-            string title = string.IsNullOrEmpty(Snapshot.Title) ? "Charge Strip · " + L("Медіа") : Snapshot.Title;
-            if (icon != null) icon.Update(note, title);
             if (Changed != null) Changed();
         }
         if (panel != null) panel.UpdateSnapshot(snapshot);
     }
 
-    private string L(string text) { return Localize.Text(preferences().Language, text); }
+    private async void PrepareArtwork(byte[] data, MediaService activeService)
+    {
+        Bitmap image = await Task.Run(() =>
+        {
+            using (var stream = new MemoryStream(data))
+            using (var source = Image.FromStream(stream))
+                return new Bitmap(source);
+        });
+        if (!ReferenceEquals(service, activeService) || !ReferenceEquals(decodedArtwork, data))
+        {
+            image.Dispose();
+            return;
+        }
+        SetArtwork(image);
+        if (Changed != null) Changed();
+    }
+
+    private void SetArtwork(Bitmap image)
+    {
+        Bitmap previous = Artwork;
+        Artwork = image;
+        if (panel != null) panel.SetArtwork(image);
+        if (previous != null) previous.Dispose();
+    }
 
     internal void Open(Rectangle anchor)
     {
         if (panel != null) { Close(); return; }
+        if (service == null) return;
         dismissOthers();
         if (anchor.IsEmpty) anchor = new Rectangle(Cursor.Position, new Size(1, 1));
         panel = new MediaCard(preferences(), anchor, service.Select, service.Command);
         panel.SetArtwork(Artwork);
         panel.UpdateSnapshot(snapshot);
         panel.FormClosed += (sender, args) => { if (ReferenceEquals(panel, sender)) panel = null; };
-        if (icon != null) icon.PrepareMenu();
         panel.Show();
         if (panel != null) panel.Activate();
     }
@@ -132,10 +117,8 @@ internal sealed class MediaModule : IDisposable
     {
         timer.Dispose();
         Close();
-        if (icon != null) icon.Dispose();
-        if (note != null) note.Dispose();
-        if (Artwork != null) Artwork.Dispose();
-        if (service != null) service.Dispose();
+        SetArtwork(null);
+        if (service != null) { service.Dispose(); service = null; }
     }
 }
 
@@ -146,16 +129,17 @@ internal sealed class MediaCard : Form
     private readonly Action<string> select;
     private readonly Action<string, string, TimeSpan> command;
     private readonly PictureBox artwork = new PictureBox { SizeMode = PictureBoxSizeMode.Zoom, Dock = DockStyle.Fill };
-    private readonly ComboBox sources = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList };
+    private readonly ComboBox sources = new ComboBox { Dock = DockStyle.Fill, DropDownStyle = ComboBoxStyle.DropDownList,
+        FlatStyle = FlatStyle.Flat, DrawMode = DrawMode.OwnerDrawFixed };
     private readonly Label title = new Label { AutoEllipsis = true, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft };
     private readonly Label artist = new Label { AutoEllipsis = true, Dock = DockStyle.Fill };
     private readonly Label timestamp = new Label { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleRight };
-    private readonly TrackBar seek = new TrackBar { Minimum = 0, Maximum = 1000, TickStyle = TickStyle.None, Dock = DockStyle.Fill };
+    private readonly MediaProgress seek = new MediaProgress { Dock = DockStyle.Fill };
     private readonly Button previous, playPause, next;
-    private readonly Font titleFont = new Font("Segoe UI", 13, FontStyle.Bold);
-    private readonly Font normalFont = new Font("Segoe UI", 9);
+    private readonly Font titleFont, normalFont, controlFont;
+    private readonly Color accent, outline;
     private MediaSnapshot snapshot = new MediaSnapshot();
-    private bool updating, scrubbing, active;
+    private bool updating, active;
     private string[] sourceIds = new string[0];
 
     internal MediaCard(StripSettings settings, Rectangle anchor, Action<string> select, Action<string, string, TimeSpan> command)
@@ -171,56 +155,63 @@ internal sealed class MediaCard : Form
         KeyPreview = true;
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
+        DoubleBuffered = true;
         BackColor = StripSettings.PopupColor(settings.Background, settings.Alpha);
         ForeColor = StripSettings.ColorOf(settings.Text);
+        accent = StripSettings.ColorOf(settings.Icons);
+        outline = Mix(BackColor, accent, .31);
+        Opacity = .92 + settings.Alpha * .0007;
+        float zoom = settings.Zoom / 100f;
+        normalFont = new Font("Segoe UI", 9 * zoom);
+        titleFont = new Font("Segoe UI", 13 * zoom, FontStyle.Bold);
+        controlFont = new Font("Segoe MDL2 Assets", 12 * zoom);
         Font = normalFont;
 
-        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(14) };
-        foreach (int height in new[] { 28, 0, 32, 22, 24, 20, 39 })
-            layout.RowStyles.Add(height == 0 ? new RowStyle(SizeType.Percent, 100) : new RowStyle(SizeType.Absolute, height));
+        var layout = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 1, RowCount = 7, Padding = new Padding(14), BackColor = Color.Transparent };
+        foreach (int height in new[] { 30, 0, 45, 20, 24, 20, 39 })
+            layout.RowStyles.Add(height == 0 ? new RowStyle(SizeType.Percent, 100) : new RowStyle(SizeType.Absolute, (int)(height * zoom)));
         var header = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 2, Margin = Padding.Empty };
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 57));
         header.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 43));
-        header.Controls.Add(new Label { Text = "Charge Strip · " + Text, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft, AutoEllipsis = true }, 0, 0);
+        header.Controls.Add(new Label { Text = "Charge Strip · " + Text, Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleLeft,
+            AutoEllipsis = true, ForeColor = accent }, 0, 0);
         header.Controls.Add(sources, 1, 0);
         sources.AccessibleName = L("Джерело медіа");
+        sources.BackColor = Mix(BackColor, accent, .11);
+        sources.ForeColor = ForeColor;
+        sources.DrawItem += (sender, args) =>
+        {
+            bool selected = (args.State & DrawItemState.Selected) != 0;
+            using (var fill = new SolidBrush(selected ? Mix(BackColor, accent, .24) : sources.BackColor))
+                args.Graphics.FillRectangle(fill, args.Bounds);
+            if (args.Index >= 0)
+                TextRenderer.DrawText(args.Graphics, sources.GetItemText(sources.Items[args.Index]), normalFont, args.Bounds, ForeColor,
+                    TextFormatFlags.SingleLine | TextFormatFlags.VerticalCenter | TextFormatFlags.EndEllipsis);
+        };
         sources.SelectedIndexChanged += (sender, args) =>
         {
             if (!updating && sources.SelectedIndex >= 0) select(sourceIds[sources.SelectedIndex]);
         };
         layout.Controls.Add(header, 0, 0);
-        artwork.BackColor = Color.FromArgb(22, 25, 33);
+        artwork.BackColor = Mix(BackColor, Color.Black, .25);
         artwork.Margin = new Padding(0, 5, 0, 2);
+        artwork.Resize += (sender, args) => ApplyRoundedRegion(artwork, 9);
         layout.Controls.Add(artwork, 0, 1);
         title.Font = titleFont;
         layout.Controls.Add(title, 0, 2);
         layout.Controls.Add(artist, 0, 3);
         seek.AccessibleName = L("Позиція відтворення");
-        seek.MouseDown += (sender, args) => { if (seek.Enabled) scrubbing = true; };
-        seek.MouseUp += (sender, args) =>
-        {
-            if (!scrubbing) return;
-            scrubbing = false;
-            if (seek.Enabled)
-            {
-                int width = Math.Max(1, seek.ClientSize.Width - 16);
-                seek.Value = StripSettings.Clamp((args.X - 8) * 1000 / width, 0, 1000);
-                SendSeek();
-            }
-        };
-        seek.KeyUp += (sender, args) =>
-        {
-            if (args.KeyCode == Keys.Left || args.KeyCode == Keys.Right || args.KeyCode == Keys.Home || args.KeyCode == Keys.End)
-                SendSeek();
-        };
+        seek.Accent = accent;
+        seek.Rail = outline;
+        seek.ValueCommitted += (sender, args) => SendSeek();
         layout.Controls.Add(seek, 0, 4);
         layout.Controls.Add(timestamp, 0, 5);
 
         var controls = new TableLayoutPanel { Dock = DockStyle.Fill, ColumnCount = 3, Margin = Padding.Empty };
         for (int i = 0; i < 3; i++) controls.ColumnStyles.Add(new ColumnStyle(SizeType.Percent, 33.33f));
-        previous = MakeButton("‹‹", L("Попередній"), "previous");
-        playPause = MakeButton("▶", L("Відтворити"), "play");
-        next = MakeButton("››", L("Наступний"), "next");
+        previous = MakeButton("\uE892", L("Попередній"), "previous");
+        playPause = MakeButton("\uE768", L("Відтворити"), "play");
+        next = MakeButton("\uE893", L("Наступний"), "next");
         controls.Controls.Add(previous, 0, 0);
         controls.Controls.Add(playPause, 1, 0);
         controls.Controls.Add(next, 2, 0);
@@ -251,6 +242,54 @@ internal sealed class MediaCard : Form
         Native.RoundCorners(Handle);
     }
 
+    protected override CreateParams CreateParams
+    {
+        get
+        {
+            var parameters = base.CreateParams;
+            parameters.ClassStyle |= 0x00020000; // CS_DROPSHADOW on the flyout.
+            return parameters;
+        }
+    }
+
+    protected override void OnResize(EventArgs e)
+    {
+        base.OnResize(e);
+        if (settings != null) ApplyRoundedRegion(this, 13);
+    }
+
+    private static void ApplyRoundedRegion(Control control, int radius)
+    {
+        if (control.Width < radius * 2 || control.Height < radius * 2) return;
+        using (var path = Rounded(new Rectangle(0, 0, control.Width, control.Height), radius))
+        {
+            Region previous = control.Region;
+            control.Region = new Region(path);
+            if (previous != null) previous.Dispose();
+        }
+    }
+
+    private static GraphicsPath Rounded(Rectangle bounds, int radius)
+    {
+        int diameter = radius * 2;
+        var path = new GraphicsPath();
+        path.AddArc(bounds.Left, bounds.Top, diameter, diameter, 180, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Top, diameter, diameter, 270, 90);
+        path.AddArc(bounds.Right - diameter, bounds.Bottom - diameter, diameter, diameter, 0, 90);
+        path.AddArc(bounds.Left, bounds.Bottom - diameter, diameter, diameter, 90, 90);
+        path.CloseFigure();
+        return path;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        using (var line = new Pen(outline))
+        using (var edge = Rounded(new Rectangle(1, 1, Width - 2, Height - 2), 13))
+            e.Graphics.DrawPath(line, edge);
+    }
+
     protected override void OnShown(EventArgs e) { base.OnShown(e); active = true; }
     protected override void OnDeactivate(EventArgs e) { base.OnDeactivate(e); if (active) Close(); }
     protected override bool ProcessCmdKey(ref Message message, Keys key)
@@ -261,11 +300,20 @@ internal sealed class MediaCard : Form
 
     private string L(string text) { return Localize.Text(settings.Language, text); }
 
+    private static Color Mix(Color background, Color tone, double amount)
+    {
+        return Color.FromArgb((int)(background.R + (tone.R - background.R) * amount),
+            (int)(background.G + (tone.G - background.G) * amount), (int)(background.B + (tone.B - background.B) * amount));
+    }
+
     private Button MakeButton(string caption, string name, string action)
     {
+        bool primary = action == "play";
         var button = new Button { Text = caption, AccessibleName = name, Dock = DockStyle.Fill, FlatStyle = FlatStyle.Flat,
-            ForeColor = ForeColor, BackColor = Color.FromArgb(38, 38, 48) };
-        button.FlatAppearance.BorderColor = StripSettings.ColorOf(settings.Icons);
+            Font = controlFont, ForeColor = primary ? ForeColor : accent,
+            BackColor = Mix(BackColor, accent, primary ? .27 : .12) };
+        button.FlatAppearance.BorderColor = outline;
+        button.FlatAppearance.MouseOverBackColor = Mix(BackColor, accent, .36);
         button.Click += (sender, args) => command(action, snapshot.Source, TimeSpan.Zero);
         return button;
     }
@@ -290,13 +338,13 @@ internal sealed class MediaCard : Form
         previous.Enabled = value.CanPrevious;
         next.Enabled = value.CanNext;
         playPause.Enabled = value.CanPlayPause;
-        playPause.Text = value.Playing ? "Ⅱ" : "▶";
+        playPause.Text = value.Playing ? "\uE769" : "\uE768";
         playPause.AccessibleName = L(value.Playing ? "Пауза" : "Відтворити");
 
         TimeSpan duration = value.End - value.Start;
         TimeSpan elapsed = value.CurrentPosition - value.Start;
         seek.Enabled = value.CanSeek && duration > TimeSpan.Zero;
-        if (!scrubbing) seek.Value = duration > TimeSpan.Zero
+        if (!seek.Scrubbing) seek.Value = duration > TimeSpan.Zero
             ? StripSettings.Clamp((int)(1000 * elapsed.TotalSeconds / duration.TotalSeconds), 0, 1000) : 0;
         timestamp.Text = value.Source == null ? "" : Format(elapsed) + (duration > TimeSpan.Zero ? " / " + Format(duration) : "");
     }
@@ -320,7 +368,109 @@ internal sealed class MediaCard : Form
             artwork.Image = null;
             titleFont.Dispose();
             normalFont.Dispose();
+            controlFont.Dispose();
         }
         base.Dispose(disposing);
+    }
+}
+
+internal sealed class MediaProgress : Control
+{
+    private const int Inset = 8, Maximum = 1000;
+    private int value;
+    internal Color Accent, Rail;
+    internal bool Scrubbing { get; private set; }
+    internal event EventHandler ValueCommitted;
+    internal int Value
+    {
+        get { return value; }
+        set
+        {
+            int position = StripSettings.Clamp(value, 0, Maximum);
+            if (this.value == position) return;
+            this.value = position;
+            Invalidate();
+        }
+    }
+
+    internal MediaProgress()
+    {
+        SetStyle(ControlStyles.UserPaint | ControlStyles.OptimizedDoubleBuffer | ControlStyles.Selectable, true);
+        TabStop = true;
+        AccessibleRole = AccessibleRole.Slider;
+    }
+
+    protected override void OnPaint(PaintEventArgs e)
+    {
+        base.OnPaint(e);
+        e.Graphics.SmoothingMode = SmoothingMode.AntiAlias;
+        float center = Height / 2f;
+        float progress = Inset + TrackWidth * Value / (float)Maximum;
+        using (var rail = new Pen(Rail, 4) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+        using (var fill = new Pen(Accent, 4) { StartCap = LineCap.Round, EndCap = LineCap.Round })
+        using (var thumb = new SolidBrush(Accent))
+        {
+            e.Graphics.DrawLine(rail, Inset, center, Inset + TrackWidth, center);
+            if (Value > 0) e.Graphics.DrawLine(fill, Inset, center, progress, center);
+            if (Enabled) e.Graphics.FillEllipse(thumb, progress - 4, center - 4, 8, 8);
+        }
+        if (Focused && ShowFocusCues) ControlPaint.DrawFocusRectangle(e.Graphics, ClientRectangle);
+    }
+
+    private int TrackWidth { get { return Math.Max(1, Width - 2 * Inset); } }
+
+    protected override void OnMouseDown(MouseEventArgs e)
+    {
+        base.OnMouseDown(e);
+        if (e.Button != MouseButtons.Left || !Enabled) return;
+        Focus();
+        Capture = Scrubbing = true;
+        Value = (e.X - Inset) * Maximum / TrackWidth;
+    }
+
+    protected override void OnMouseMove(MouseEventArgs e)
+    {
+        base.OnMouseMove(e);
+        if (Scrubbing) Value = (e.X - Inset) * Maximum / TrackWidth;
+    }
+
+    protected override void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (e.Button != MouseButtons.Left || !Scrubbing) return;
+        Value = (e.X - Inset) * Maximum / TrackWidth;
+        Scrubbing = Capture = false;
+        Commit();
+    }
+
+    protected override void OnMouseCaptureChanged(EventArgs e)
+    {
+        if (!Capture) Scrubbing = false;
+        base.OnMouseCaptureChanged(e);
+    }
+
+    protected override bool IsInputKey(Keys keyData)
+    {
+        return keyData == Keys.Left || keyData == Keys.Right || keyData == Keys.Home || keyData == Keys.End || base.IsInputKey(keyData);
+    }
+
+    protected override void OnKeyDown(KeyEventArgs e)
+    {
+        base.OnKeyDown(e);
+        switch (e.KeyCode)
+        {
+            case Keys.Left: Value -= 20; break;
+            case Keys.Right: Value += 20; break;
+            case Keys.Home: Value = 0; break;
+            case Keys.End: Value = Maximum; break;
+            default: return;
+        }
+        e.Handled = true;
+        Commit();
+    }
+
+    private void Commit()
+    {
+        if (Enabled && ValueCommitted != null) ValueCommitted(this, EventArgs.Empty);
     }
 }
