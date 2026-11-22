@@ -201,6 +201,7 @@ internal sealed class MediaCard : Form
         layout.Controls.Add(title, 0, 2);
         layout.Controls.Add(artist, 0, 3);
         seek.AccessibleName = L("Позиція відтворення");
+        seek.BackColor = BackColor;
         seek.Accent = accent;
         seek.Rail = outline;
         seek.ValueCommitted += (sender, args) => SendSeek();
@@ -290,7 +291,12 @@ internal sealed class MediaCard : Form
             e.Graphics.DrawPath(line, edge);
     }
 
-    protected override void OnShown(EventArgs e) { base.OnShown(e); active = true; }
+    protected override void OnShown(EventArgs e)
+    {
+        base.OnShown(e);
+        if (playPause.Enabled) ActiveControl = playPause;
+        active = true;
+    }
     protected override void OnDeactivate(EventArgs e) { base.OnDeactivate(e); if (active) Close(); }
     protected override bool ProcessCmdKey(ref Message message, Keys key)
     {
