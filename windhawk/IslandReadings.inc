@@ -27,17 +27,12 @@ static std::wstring ChargeStripReadings() {
     return result;
 }
 
-static void AddChargeStripReadings(Grid const& content) {
-    ColumnDefinition column;
-    column.Width({1, GridUnitType::Auto});
-    content.ColumnDefinitions().Append(column);
+static StackPanel MakeChargeStripReadings() {
     StackPanel inlineReadings;
     inlineReadings.Name(L"ChargeStrip_InlineReadings");
     inlineReadings.Orientation(controls::Orientation::Horizontal);
     inlineReadings.VerticalAlignment(VerticalAlignment::Center);
-    inlineReadings.Margin({6, 0, 0, 0});
-    Grid::SetColumn(inlineReadings, 3);
-    content.Children().Append(inlineReadings);
+    inlineReadings.Margin({8, 0, 8, 0});
 
     winrt::Windows::UI::Xaml::DispatcherTimer refresh;
     refresh.Interval(std::chrono::milliseconds(1500));
@@ -49,6 +44,7 @@ static void AddChargeStripReadings(Grid const& content) {
         last = data;
         target.Children().Clear();
         controls::ToolTipService::SetToolTip(target, nullptr);
+        target.Visibility(data.empty() ? Visibility::Collapsed : Visibility::Visible);
         if (data.empty()) return;
         std::vector<std::wstring> rows;
         for (size_t start = 0; start < data.size();) {
@@ -129,4 +125,6 @@ static void AddChargeStripReadings(Grid const& content) {
     refresh.Tick([redraw](auto const&, auto const&) mutable { try { redraw(); } catch (...) {} });
     inlineReadings.Loaded([refresh](auto const&, auto const&) { refresh.Start(); });
     inlineReadings.Unloaded([refresh](auto const&, auto const&) { refresh.Stop(); });
+    refresh.Start();
+    return inlineReadings;
 }

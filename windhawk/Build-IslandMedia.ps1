@@ -7,7 +7,7 @@ $ErrorActionPreference = 'Stop'
 $build = Join-Path (Split-Path $PSScriptRoot) 'build'
 New-Item -ItemType Directory -Path $build -Force | Out-Null
 $sourceFile = Join-Path $build 'island-media-integrated.wh.cpp'
-$binary = Join-Path $build 'island-media-controls_1.0.0_charge-strip.dll'
+$binary = Join-Path $build 'island-media-controls_1.0.0_charge-strip-tray-v3.dll'
 & (Join-Path $PSScriptRoot 'New-IslandMediaSource.ps1') -Source $Source -Output $sourceFile
 
 $engine = Get-ChildItem -LiteralPath (Join-Path $Windhawk 'Engine') -Directory |

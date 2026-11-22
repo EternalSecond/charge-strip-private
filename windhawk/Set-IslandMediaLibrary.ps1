@@ -12,7 +12,8 @@ if ($config.Version -ne '1.0.0') { throw 'Expected installed Island Media Contro
 
 $root = Join-Path (Split-Path $PSScriptRoot) 'build'
 $backup = Join-Path $root 'island-media-original-library.txt'
-$name = 'island-media-controls_1.0.0_charge-strip.dll'
+$name = 'island-media-controls_1.0.0_charge-strip-tray-v3.dll'
+$previous = @('island-media-controls_1.0.0_charge-strip.dll', 'island-media-controls_1.0.0_charge-strip-tray.dll', 'island-media-controls_1.0.0_charge-strip-tray-v2.dll')
 $libraryDir = Join-Path $env:ProgramData 'Windhawk\Engine\Mods\64'
 if ($Restore) {
     $original = [IO.File]::ReadAllText($backup).Trim()
@@ -20,16 +21,16 @@ if ($Restore) {
         !(Test-Path -LiteralPath (Join-Path $libraryDir $original))) {
         throw 'Original library was not found.'
     }
-    if ($config.LibraryFileName -ne $name) { throw 'The installed mod has changed since integration.' }
+    if ($config.LibraryFileName -ne $name -and $config.LibraryFileName -notin $previous) { throw 'The installed mod has changed since integration.' }
     Set-ItemProperty -LiteralPath $key -Name LibraryFileName -Value $original
 } else {
     if ($config.LibraryFileName -eq $name) { return }
-    if ($config.LibraryFileName -notmatch '^island-media-controls_1\.0\.0_\d+\.dll$') {
+    if ($config.LibraryFileName -notin $previous -and $config.LibraryFileName -notmatch '^island-media-controls_1\.0\.0_\d+\.dll$') {
         throw 'Unexpected installed library. Existing configuration was left intact.'
     }
     $binary = Join-Path $root $name
     Get-Item -LiteralPath $binary | Out-Null
-    [IO.File]::WriteAllText($backup, $config.LibraryFileName)
+    if ($config.LibraryFileName -notin $previous) { [IO.File]::WriteAllText($backup, $config.LibraryFileName) }
     Copy-Item -LiteralPath $binary -Destination (Join-Path $libraryDir $name) -Force
     Set-ItemProperty -LiteralPath $key -Name LibraryFileName -Value $name
 }
