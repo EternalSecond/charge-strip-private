@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Drawing;
 using System.Globalization;
 using System.IO;
@@ -11,9 +11,6 @@ internal sealed class MediaModule : IDisposable
     private readonly Action dismissOthers;
     private readonly Timer timer = new Timer { Interval = 250 };
     private MediaService service;
-    private bool standalone;
-    private SystemTrayIcon icon;
-    private Icon note;
     private MediaCard panel;
     private MediaSnapshot snapshot = new MediaSnapshot();
     private byte[] decodedArtwork;
@@ -28,18 +25,16 @@ internal sealed class MediaModule : IDisposable
         timer.Tick += (sender, args) => Update();
     }
 
-    internal void Apply(bool enabled, bool useTray)
+    internal void Apply(bool enabled)
     {
         if (!enabled)
         {
             Close();
             timer.Stop();
-            if (icon != null) { icon.Dispose(); icon = null; }
             if (service != null) { service.Dispose(); service = null; }
             if (Artwork != null) { Artwork.Dispose(); Artwork = null; }
             snapshot = new MediaSnapshot();
             decodedArtwork = null;
-            standalone = false;
             return;
         }
         if (service == null)
@@ -47,33 +42,7 @@ internal sealed class MediaModule : IDisposable
             service = new MediaService();
             timer.Start();
         }
-        if (standalone != useTray || useTray && icon == null)
-        {
-            standalone = useTray;
-            if (useTray)
-            {
-                if (note == null) note = CreateNote();
-                icon = new SystemTrayIcon(3, "Charge Strip Media");
-                icon.Activated += () => Open(icon.Bounds);
-                icon.Update(note, L("Медіа"));
-            }
-            else if (icon != null) { icon.Dispose(); icon = null; }
-        }
         Update();
-    }
-
-    private static Icon CreateNote()
-    {
-        using (var bitmap = new Bitmap(32, 32))
-        using (var g = Graphics.FromImage(bitmap))
-        using (var brush = new SolidBrush(Color.FromArgb(222, 177, 191)))
-        using (var font = new Font("Segoe UI", 25, FontStyle.Bold, GraphicsUnit.Pixel))
-        {
-            g.DrawString("♪", font, brush, new PointF(3, 0));
-            IntPtr handle = bitmap.GetHicon();
-            try { using (var borrowed = Icon.FromHandle(handle)) return (Icon)borrowed.Clone(); }
-            finally { Native.DestroyIcon(handle); }
-        }
     }
 
     private void Update()
@@ -97,14 +66,10 @@ internal sealed class MediaModule : IDisposable
                 if (panel != null) panel.SetArtwork(Artwork);
                 if (previous != null) previous.Dispose();
             }
-            string title = string.IsNullOrEmpty(Snapshot.Title) ? "Charge Strip · " + L("Медіа") : Snapshot.Title;
-            if (icon != null) icon.Update(note, title);
             if (Changed != null) Changed();
         }
         if (panel != null) panel.UpdateSnapshot(snapshot);
     }
-
-    private string L(string text) { return Localize.Text(preferences().Language, text); }
 
     internal void Open(Rectangle anchor)
     {
@@ -115,7 +80,6 @@ internal sealed class MediaModule : IDisposable
         panel.SetArtwork(Artwork);
         panel.UpdateSnapshot(snapshot);
         panel.FormClosed += (sender, args) => { if (ReferenceEquals(panel, sender)) panel = null; };
-        if (icon != null) icon.PrepareMenu();
         panel.Show();
         if (panel != null) panel.Activate();
     }
@@ -132,8 +96,6 @@ internal sealed class MediaModule : IDisposable
     {
         timer.Dispose();
         Close();
-        if (icon != null) icon.Dispose();
-        if (note != null) note.Dispose();
         if (Artwork != null) Artwork.Dispose();
         if (service != null) service.Dispose();
     }

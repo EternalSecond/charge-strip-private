@@ -18,7 +18,6 @@ public sealed class StripSettings
     public string[] HiddenDevices = new string[0], DeviceOrder = new string[0];
     public int MaxDevices = 5, DisplayMode;
     public string Language = "uk";
-    public bool NumericTrayIcon;
     public bool ResourcesEnabled = true, ResourcesIconOnly;
     public ResourceMetric[] ResourceStripOrder;
     public ResourceMetric[] ResourcePanelOrder = (ResourceMetric[])ResourceMetrics.DefaultOrder.Clone();
@@ -424,7 +423,6 @@ internal sealed class SettingsWindow : Form
     private readonly Strip strip;
     private readonly NumericUpDown zoom = Number("Масштаб", 60, 175), gap = Number("Відступ", 0, 24),
         alpha = Number("Фон", 35, 100);
-    private readonly CheckBox numericIcon = new CheckBox { Text = "Показувати число на іконці трея", AutoSize = true };
     private readonly CheckBox startup = new CheckBox { Text = "Запускати разом із Windows", AutoSize = true };
     private readonly CheckedListBox modules = new CheckedListBox { CheckOnClick = true, IntegralHeight = false, Width = 217, Height = 62 };
     private readonly CheckedListBox devices = new CheckedListBox { CheckOnClick = true, Dock = DockStyle.Fill, IntegralHeight = false };
@@ -500,7 +498,6 @@ internal sealed class SettingsWindow : Form
             if (!StartupRegistration.IsAccessError(problem)) throw;
             startup.Enabled = false;
         }
-        column.Controls.Add(numericIcon);
         column.Controls.Add(Heading("Модулі смужки"));
         modules.AccessibleName = "Модулі смужки";
         var moduleLayout = new FlowLayoutPanel { AutoSize = true, WrapContents = false };
@@ -525,12 +522,6 @@ internal sealed class SettingsWindow : Form
             bool visible = args.NewValue == CheckState.Checked;
             if (id == "resources") strip.Current.ResourcesEnabled = true;
             strip.Current.HiddenModules = (visible ? hidden : hidden.Concat(new[] { id })).ToArray();
-            strip.ApplySettings();
-        };
-        numericIcon.CheckedChanged += (sender, args) =>
-        {
-            if (loading) return;
-            strip.Current.NumericTrayIcon = numericIcon.Checked;
             strip.ApplySettings();
         };
 
@@ -724,7 +715,6 @@ internal sealed class SettingsWindow : Form
     {
         loading = true;
         var settings = strip.Current;
-        numericIcon.Checked = settings.NumericTrayIcon;
         zoom.Value = settings.Zoom;
         gap.Value = settings.Gap;
         alpha.Value = settings.Alpha;

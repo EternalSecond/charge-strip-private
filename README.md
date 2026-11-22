@@ -11,8 +11,8 @@ A portable Windows 11 taskbar strip for device batteries, media controls, and PC
 ## Install and run
 
 1. Download **Charge-Strip-Windows-x64.zip** and extract it to a folder you plan to keep.
-2. Open **ChargeStrip.exe**. The shared strip uses available space between the taskbar apps and the notification area. When the gap is too small, the enabled modules use notification-area icons. Windows may put those icons under **Show hidden icons**.
-3. Right-click the strip or a tray icon and select **Settings**, or launch **Open Settings.cmd**. The launcher reuses the running instance.
+2. Open **ChargeStrip.exe**. The modules share one strip next to the notification area. It scales down as the taskbar fills up and hides if the remaining gap cannot fit the strip.
+3. Right-click the strip and select **Settings**, or launch **Open Settings.cmd**. The launcher reuses the running instance and works while the strip is hidden.
 
 The portable executable is unsigned. Windows may display a publisher warning. To verify your download, run `Get-FileHash .\Charge-Strip-Windows-x64.zip -Algorithm SHA256` in PowerShell and compare it with **SHA256SUMS.txt** on the release page.
 
@@ -22,12 +22,11 @@ The portable executable is unsigned. Windows may display a publisher warning. To
 | --- | --- |
 | Left-click the battery module | Open the battery list |
 | Hover over the icon | See the first selected device and its percentage |
-| Right-click the strip or a tray icon | Open Settings, refresh, or exit |
+| Right-click the strip | Open Settings, refresh, or exit |
 | Choose **Position → Left of the system tray** | Keep the right edge 6 pixels from the tray and grow left as modules are added |
 | Choose **Position → Manual X/Y** | Select a monitor and enter offsets in pixels, or drag the strip |
 | Check modules and use the arrows | Toggle Batteries, Media, and PC Resources and order them from left to right. Changes appear immediately in the preview and on the taskbar. |
 | Check devices, use the arrows and set a limit | Choose which readings appear. The first selected device drives the tray icon. |
-| Enable **Show a number on the tray icon** | Use a percentage instead of a filled battery symbol |
 | Change display mode | Show icons and percentages, icons only, or percentages only |
 | Change scale, spacing, colors or background tint | Adjust the battery flyout and tray icon colors |
 | Enable **Run with Windows** | Show the strip when your Windows account signs in |
@@ -41,7 +40,7 @@ Click the track title or artwork to open the media card above the strip. The car
 
 ## PC Resources
 
-Click the chip with a pulse line to open **PC Resources**. In **Settings → PC Resources**, pick and reorder the metrics independently for the strip and the panel. Clear all strip metrics to keep the chip by itself. Uncheck **PC Resources** in the module list to hide the module. When Windows falls back to a notification-area icon, the icon shows the first selected strip metric and its tooltip lists the selected strip metrics.
+Click the chip with a pulse line to open **PC Resources**. In **Settings → PC Resources**, pick and reorder the metrics independently for the strip and the panel. Clear all strip metrics to keep the chip by itself. Uncheck **PC Resources** in the module list to hide the module.
 
 Choose **Numbers** or **Numbers + bars**, and set the bar color with the palette or a `#RRGGBB` value. Bars show the share of capacity in use. Network bars use the combined link speed of active interfaces. GPU summarizes the busiest available hardware engine and shows a dash when Windows supplies no GPU data. The sampler collects only the metrics selected for either view. The panel opens by click and dismisses on Escape or an outside click.
 
@@ -61,7 +60,7 @@ A dash means a detected device has no available reading. Check that the device i
 
 Preferences are stored per user in `%LOCALAPPDATA%\Charge Strip\settings.xml`. Charge Strip reads battery data locally and has no telemetry.
 
-To update, quit Charge Strip and extract the new files into the same folder. To exit, right-click the tray icon and select Exit. To remove it, turn off **Run with Windows**, save, exit the app, then delete the extracted folder. Remove the separate preferences file if you also want to clear your layout and colors.
+To update, quit Charge Strip and extract the new files into the same folder. To exit, right-click the strip and select **Exit**. To remove it, turn off **Run with Windows**, save, exit the app, then delete the extracted folder. Remove the separate preferences file if you also want to clear your layout and colors.
 
 ## Build from source
 

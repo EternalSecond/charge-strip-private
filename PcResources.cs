@@ -1,4 +1,4 @@
-﻿using System.Drawing;
+using System.Drawing;
 using System.Drawing.Drawing2D;
 using System.Threading.Tasks;
 using System.Windows.Forms;
@@ -291,12 +291,9 @@ internal sealed class GpuSampler : IDisposable
 internal sealed class ResourcesModule : IDisposable
 {
     private readonly Func<StripSettings> settings;
-    private readonly Action dismissBattery, openSettings;
+    private readonly Action dismissBattery;
     private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = 1200 };
     private readonly ResourceSampler sampler = new ResourceSampler();
-    private SystemTrayIcon tray;
-    private Icon icon;
-    private string iconKey;
     private ResourcePanel panel;
     private ResourceReading reading = new ResourceReading();
     private bool sampling, disposed;
@@ -304,15 +301,14 @@ internal sealed class ResourcesModule : IDisposable
     internal ResourceReading Reading { get { return reading; } }
     internal event Action Changed;
 
-    internal ResourcesModule(Func<StripSettings> settings, Action dismissBattery, Action openSettings)
+    internal ResourcesModule(Func<StripSettings> settings, Action dismissBattery)
     {
         this.settings = settings;
         this.dismissBattery = dismissBattery;
-        this.openSettings = openSettings;
         timer.Tick += async (sender, args) => await Sample();
     }
 
-    internal void Apply(bool useTray)
+    internal void Apply()
     {
         if (disposed) return;
         var current = settings();
@@ -320,20 +316,9 @@ internal sealed class ResourcesModule : IDisposable
         {
             Close();
             SelectMetrics(ResourceMetric.None);
-            if (tray != null) { tray.Dispose(); tray = null; }
-            if (icon != null) { icon.Dispose(); icon = null; }
-            iconKey = null;
             return;
         }
-        if (useTray && tray == null)
-        {
-            tray = new SystemTrayIcon(2, "Charge Strip PC Resources");
-            tray.Activated += () => Open(tray.Bounds);
-            tray.MenuRequested += () => { Close(); openSettings(); };
-        }
-        else if (!useTray && tray != null) { tray.Dispose(); tray = null; }
         SelectMetrics(ResourceMetrics.All & ~(current.HiddenMetrics(true) & current.HiddenMetrics(false)));
-        if (tray != null) UpdateIcon(current);
         if (panel != null) panel.UpdateReading(reading, current);
     }
 
@@ -357,7 +342,6 @@ internal sealed class ResourcesModule : IDisposable
             {
                 reading = result;
                 var current = settings();
-                if (tray != null) UpdateIcon(current);
                 if (panel != null) panel.UpdateReading(reading, current);
                 if (Changed != null) Changed();
             }
@@ -368,52 +352,6 @@ internal sealed class ResourcesModule : IDisposable
             if (disposed) sampler.Dispose();
         }
         if (!disposed && requested != wanted) await Sample();
-    }
-
-    private void UpdateIcon(StripSettings current)
-    {
-        var metrics = current.VisibleMetrics(true).ToArray();
-        string number = metrics.Length == 0 ? "" : reading.Value(metrics[0], true);
-        Color accent = StripSettings.ColorOf(current.Icons);
-        string key = accent.ToArgb() + ":" + number;
-        Icon previous = null;
-        if (key != iconKey)
-        {
-            previous = icon;
-            icon = CreateIcon(number, accent);
-            iconKey = key;
-        }
-        string title = Localize.Text(current.Language, "Ресурси ПК");
-        tray.Update(icon, metrics.Length == 0 ? title : reading.Describe(metrics, current.Language));
-        if (previous != null) previous.Dispose();
-    }
-
-    private static Icon CreateIcon(string value, Color accent)
-    {
-        string number = value.TrimEnd('%');
-        using (var bitmap = new Bitmap(32, 32))
-        using (var graphics = Graphics.FromImage(bitmap))
-        using (var pen = new Pen(accent, 2))
-        using (var fill = new SolidBrush(accent))
-        using (var font = new Font("Segoe UI", number.Length > 2 ? 32f / number.Length : 18, FontStyle.Bold, GraphicsUnit.Pixel))
-        using (var format = new StringFormat { Alignment = StringAlignment.Center, LineAlignment = StringAlignment.Center })
-        {
-            graphics.SmoothingMode = SmoothingMode.AntiAlias;
-            graphics.TextRenderingHint = System.Drawing.Text.TextRenderingHint.AntiAliasGridFit;
-            if (number.Length != 0)
-            {
-                graphics.DrawRectangle(pen, 3, 5, 26, 22);
-                graphics.DrawLine(pen, 0, 11, 3, 11);
-                graphics.DrawLine(pen, 0, 21, 3, 21);
-                graphics.DrawLine(pen, 29, 11, 32, 11);
-                graphics.DrawLine(pen, 29, 21, 32, 21);
-                graphics.DrawString(number, font, fill, new RectangleF(3, 4, 26, 24), format);
-            }
-            else DrawChip(graphics, new RectangleF(0, 0, 32, 32), accent);
-            IntPtr handle = bitmap.GetHicon();
-            try { using (var borrowed = Icon.FromHandle(handle)) return (Icon)borrowed.Clone(); }
-            finally { Native.DestroyIcon(handle); }
-        }
     }
 
     internal static void DrawChip(Graphics graphics, RectangleF bounds, Color accent)
@@ -477,7 +415,6 @@ internal sealed class ResourcesModule : IDisposable
         if (bounds.IsEmpty) bounds = new Rectangle(Cursor.Position, new Size(1, 1));
         panel = new ResourcePanel(reading, settings(), bounds);
         panel.FormClosed += (sender, args) => { if (ReferenceEquals(panel, sender)) panel = null; };
-        if (tray != null) tray.PrepareMenu();
         panel.Show();
         if (panel != null) panel.Activate();
     }
@@ -495,8 +432,6 @@ internal sealed class ResourcesModule : IDisposable
         disposed = true;
         timer.Dispose();
         Close();
-        if (tray != null) tray.Dispose();
-        if (icon != null) icon.Dispose();
         if (!sampling) sampler.Dispose();
     }
 }

@@ -20,7 +20,6 @@ internal sealed class ModuleStrip : Form
     private int appRight, dockRight;
     private bool scanning, measured, dragging;
     private Point pointer, origin;
-    internal bool IsMeasured { get { return measured; } }
     internal Rectangle VisibleBounds { get { return Visible ? Bounds : Rectangle.Empty; } }
 
     internal Screen PositionScreen(string monitor)
@@ -89,8 +88,8 @@ internal sealed class ModuleStrip : Form
         int maxHeight = docked ? bar.Height - 4 : screen.Bounds.Height;
         float effective = Math.Min(requested, maxHeight / (float)HeightUnits);
         int resourceCount = settings.VisibleMetrics(true).Count();
-        int minimum = (int)Math.Ceiling(MinimumWidth(modules, resourceCount) * effective);
-        if (available < minimum || effective < .55f)
+        effective = Math.Min(effective, available / MinimumWidth(modules, resourceCount));
+        if (effective < .55f)
         {
             if (Visible) Hide();
             return false;
@@ -144,7 +143,7 @@ internal sealed class ModuleStrip : Form
 
     private static float MinimumWidth(string[] modules, int resourceCount)
     {
-        return Grip + 6 + modules.Sum(m => m == "media" ? 62 : m == "resources" ? ResourcesModule.TileWidth(resourceCount, true) : 34);
+        return Grip + 6 + modules.Sum(m => m == "media" ? 62 : m == "resources" ? ResourcesModule.TileWidth(resourceCount, true) : 48);
     }
 
     private static float IdealWidth(string[] modules, int resourceCount)
@@ -195,7 +194,7 @@ internal sealed class ModuleStrip : Form
                 float width = id == "media" ? 62 + 89 * balance :
                     id == "resources" ? ResourcesModule.TileWidth(resourceCount, true) +
                         (ResourcesModule.TileWidth(resourceCount, false) - ResourcesModule.TileWidth(resourceCount, true)) * balance
-                    : 34 + 34 * balance;
+                    : 48 + 20 * balance;
                 var tile = new RectangleF(left, 2, width, 30);
                 if (targets != null)
                     targets.Add(new KeyValuePair<string, Rectangle>(id, Rectangle.Round(new RectangleF(area.X + left * factor,
@@ -223,9 +222,8 @@ internal sealed class ModuleStrip : Form
                 else
                 {
                     var readings = owner.Readings;
-                    int take = width >= 61 ? 2 : 1;
-                    string charge = string.Join(" · ", readings.Take(take).Select(row => row.Level));
-                    graphics.DrawString(string.IsNullOrEmpty(charge) ? "—" : charge, take == 2 ? small : font, fore, tile, center);
+                    string charge = string.Join(" · ", readings.Take(2).Select(row => row.Level));
+                    graphics.DrawString(string.IsNullOrEmpty(charge) ? "—" : charge, small, fore, tile, center);
                 }
                 left += width;
                 if (id != modules[modules.Length - 1]) graphics.DrawLine(line, left, 10, left, 24);
@@ -267,7 +265,7 @@ internal sealed class ModuleStrip : Form
     protected override void OnMouseUp(MouseEventArgs e)
     {
         base.OnMouseUp(e);
-        if (e.Button == MouseButtons.Right) { owner.OpenSettings(); return; }
+        if (e.Button == MouseButtons.Right) { owner.OpenStripMenu(new Point(PointToScreen(e.Location).X, Top - 4)); return; }
         if (e.Button != MouseButtons.Left || !Capture) return;
         Capture = false;
         if (dragging)
