@@ -290,6 +290,7 @@ internal sealed class GpuSampler : IDisposable
 
 internal sealed class ResourcesModule : IDisposable
 {
+    private const int ChipSize = 20, ChipAndGap = 26;
     private readonly Func<StripSettings> settings;
     private readonly Action dismissBattery;
     private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = 1200 };
@@ -378,16 +379,16 @@ internal sealed class ResourcesModule : IDisposable
 
     internal static float TileWidth(int count, bool compact)
     {
-        if (count == 0) return compact ? 24 : 29;
-        return 26 + (count + 1) / 2 * (compact ? 36 : 51);
+        if (count == 0) return ChipSize;
+        return ChipAndGap + (count + 1) / 2 * (compact ? 36 : 51);
     }
 
     internal static void DrawTile(Graphics graphics, RectangleF bounds, ResourceReading reading, StripSettings settings)
     {
         var metrics = settings.VisibleMetrics(true).ToArray();
         Color accent = StripSettings.ColorOf(settings.Icons);
-        float chipX = metrics.Length == 0 ? bounds.X + (bounds.Width - 24) / 2 : bounds.X + 1;
-        DrawChip(graphics, new RectangleF(chipX, bounds.Y + (bounds.Height - 24) / 2, 24, 24), accent);
+        float chipX = metrics.Length == 0 ? bounds.X + (bounds.Width - ChipSize) / 2 : bounds.X;
+        DrawChip(graphics, new RectangleF(chipX, bounds.Y + (bounds.Height - ChipSize) / 2, ChipSize, ChipSize), accent);
         if (metrics.Length == 0) return;
         using (var font = new Font("Segoe UI", 9, FontStyle.Regular, GraphicsUnit.Pixel))
         using (var ink = new SolidBrush(StripSettings.ColorOf(settings.Text)))
@@ -395,14 +396,14 @@ internal sealed class ResourcesModule : IDisposable
             FormatFlags = StringFormatFlags.NoWrap })
         {
             int columns = (metrics.Length + 1) / 2;
-            float width = (bounds.Width - 26) / columns;
+            float width = (bounds.Width - ChipAndGap) / columns;
             float height = metrics.Length > 1 ? bounds.Height / 2 : bounds.Height;
             for (int i = 0; i < metrics.Length; i++)
             {
                 ResourceMetric metric = metrics[i];
                 int column = i % columns, row = i / columns;
                 string caption = ResourceMetrics.ShortLabel(metric, settings.Language) + " " + reading.Value(metric, true);
-                graphics.DrawString(caption, font, ink, new RectangleF(bounds.X + 26 + column * width, bounds.Y + row * height,
+                graphics.DrawString(caption, font, ink, new RectangleF(bounds.X + ChipAndGap + column * width, bounds.Y + row * height,
                     width, height), format);
             }
         }

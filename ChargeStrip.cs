@@ -142,6 +142,12 @@ internal sealed class Strip : ApplicationContext
 
     internal string ModuleHint(string id)
     {
+        if (id == "batteries")
+        {
+            var batteries = Readings.Take(2).ToArray();
+            if (batteries.Length != 0)
+                return string.Join("\n", batteries.Select(row => Translate(row.Name) + " · " + row.Level));
+        }
         if (id == "media" && !string.IsNullOrWhiteSpace(media.Snapshot.Title))
             return media.Snapshot.Title + (string.IsNullOrWhiteSpace(media.Snapshot.Artist) ? "" : " · " + media.Snapshot.Artist);
         if (id == "resources")

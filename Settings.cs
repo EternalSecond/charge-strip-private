@@ -957,7 +957,7 @@ internal sealed class SettingsWindow : Form
                 e.Graphics.FillRectangle(backdrop, canvas);
                 var tray = new Rectangle(0, canvas.Bottom - 34, canvas.Width, 34);
                 e.Graphics.FillRectangle(bar, tray);
-                int width = Math.Min(tray.Width - 66, 288);
+                int width = ModuleStrip.PreviewWidth(settings, tray.Width - 66, 32);
                 ModuleStrip.Draw(e.Graphics, new Rectangle(tray.Right - width - 51, tray.Top + 1, width, 32), owner);
                 TextRenderer.DrawText(e.Graphics, "22:41", label, new Point(tray.Right - 48, tray.Top + 8), Color.WhiteSmoke);
                 int count = Math.Min(rows.Count, 3);
