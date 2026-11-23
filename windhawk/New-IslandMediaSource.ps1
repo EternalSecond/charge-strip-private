@@ -20,18 +20,22 @@ function Insert-Once([string]$Text, [string]$Anchor, [string]$Replacement) {
 }
 
 $additions = [IO.File]::ReadAllText((Join-Path $PSScriptRoot 'IslandReadings.inc'))
-$anchor = 'void ReserveIslandAnchorSpace() {'
-$sourceText = Insert-Once $sourceText $anchor "[[clang::no_destroy]] static StackPanel chargeStripItems{nullptr};`nstatic constexpr double chargeStripWidth = 122.0;`n`n$anchor"
+$anchor = 'void SyncIslandOverlayVisibility() {'
+$sourceText = Insert-Once $sourceText $anchor "[[clang::no_destroy]] static StackPanel chargeStripItems{nullptr};`nstatic constexpr double chargeStripWidth = 122.0;`nstatic constexpr double chargeStripReservation = 116.0;`nstatic bool ChargeStripVisible() { return chargeStripItems && chargeStripItems.Visibility() == Visibility::Visible; }`n`n$anchor"
+$anchor = '        g_playerGrid.Visibility() == xaml::Visibility::Visible && g_playerGrid.Opacity() > 0.001;'
+$sourceText = Insert-Once $sourceText $anchor '        (ChargeStripVisible() || (g_playerGrid.Visibility() == xaml::Visibility::Visible && g_playerGrid.Opacity() > 0.001));'
+$anchor = '    if (g_islandPlacementPopup.IsHitTestVisible() != g_playerGrid.IsHitTestVisible())'
+$sourceText = Insert-Once $sourceText "$anchor`n        g_islandPlacementPopup.IsHitTestVisible(g_playerGrid.IsHitTestVisible());" "    bool hitTest = ChargeStripVisible() || g_playerGrid.IsHitTestVisible();`n    if (g_islandPlacementPopup.IsHitTestVisible() != hitTest)`n        g_islandPlacementPopup.IsHitTestVisible(hitTest);"
 $anchor = 'void UpdateRuntimeLayout(HWND hwnd,'
 $sourceText = Insert-Once $sourceText $anchor "$additions`n$anchor"
 $anchor = '                     g_settings.marginLeft + g_settings.marginRight);'
-$sourceText = Insert-Once $sourceText $anchor '                     g_settings.marginLeft + g_settings.marginRight + (chargeStripItems ? chargeStripWidth : 0));'
+$sourceText = Insert-Once $sourceText $anchor '                     g_settings.marginLeft + g_settings.marginRight + (ChargeStripVisible() ? chargeStripReservation : 0));'
 $anchor = '        g_settings.marginLeft + g_settings.marginRight);'
-$sourceText = Insert-Once $sourceText "`n$anchor" "`n        g_settings.marginLeft + g_settings.marginRight + (chargeStripItems ? chargeStripWidth : 0));"
+$sourceText = Insert-Once $sourceText "`n$anchor" "`n        g_settings.marginLeft + g_settings.marginRight + (ChargeStripVisible() ? chargeStripReservation : 0));"
 $anchor = '        g_islandOverlayWidth = overlayWidth; g_islandOverlayHeight = overlayHeight;'
 $sourceText = Insert-Once $sourceText $anchor @'
-        if (chargeStripItems) {
-            controls::Canvas::SetLeft(chargeStripItems, localX + g_playerGrid.Width() + 5);
+        if (ChargeStripVisible()) {
+            controls::Canvas::SetLeft(chargeStripItems, localX + g_playerGrid.Width() + 11);
             controls::Canvas::SetTop(chargeStripItems, localY + (height - 26) / 2);
             overlayWidth += chargeStripWidth;
         }
@@ -40,10 +44,10 @@ $sourceText = Insert-Once $sourceText $anchor @'
 $anchor = '        placement.Children().Append(island);'
 $sourceText = Insert-Once $sourceText $anchor @'
         placement.Children().Append(island);
-        if (!IsVerticalTaskbar() && !ChargeStripReadings().empty()) {
+        if (!IsVerticalTaskbar()) {
             chargeStripItems = MakeChargeStripReadings();
             chargeStripItems.Height(26);
-            chargeStripItems.Width(chargeStripWidth - 9);
+            chargeStripItems.Width(chargeStripWidth - 11);
             placement.Children().Append(chargeStripItems);
         }
 '@

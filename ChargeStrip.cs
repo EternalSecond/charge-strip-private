@@ -49,6 +49,7 @@ internal sealed class Strip : ApplicationContext
     private StripSettings saved, draft;
     private SettingsWindow editor;
     private bool polling, disposed;
+    private int quickBatteryRetries = 16;
 
     internal StripSettings Current { get { return draft ?? saved; } }
     internal IList<BatteryReading> AllReadings { get { return rows; } }
@@ -270,7 +271,7 @@ internal sealed class Strip : ApplicationContext
         try
         {
             previousStartup = StartupRegistration.Enabled;
-            if (previousStartup != startWithWindows) StartupRegistration.SetEnabled(startWithWindows);
+            if (startWithWindows || previousStartup) StartupRegistration.SetEnabled(startWithWindows);
         }
         catch (Exception error)
         {
@@ -316,6 +317,10 @@ internal sealed class Strip : ApplicationContext
         {
             rows = await Task.Run(() => Batteries.Read());
             if (disposed) return;
+            bool waitingForArctis = Current.ModuleVisible("batteries") &&
+                rows.Count(row => row.Name.StartsWith("Arctis Nova Pro Wireless", StringComparison.Ordinal) &&
+                    row.Percent.HasValue) < 2;
+            timer.Interval = waitingForArctis && quickBatteryRetries-- > 0 ? 3000 : 12000;
             ApplySettings();
         }
         finally { polling = false; }

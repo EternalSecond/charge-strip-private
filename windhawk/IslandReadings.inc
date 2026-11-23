@@ -67,6 +67,7 @@ static void RequestChargeStripPanel(bool battery) {
 static StackPanel MakeChargeStripReadings() {
     StackPanel strip;
     strip.Name(L"ChargeStrip_InlineReadings");
+    strip.Visibility(Visibility::Collapsed);
     strip.Orientation(controls::Orientation::Horizontal);
     strip.VerticalAlignment(VerticalAlignment::Center);
     auto makeButton = [](bool battery) {
@@ -89,11 +90,12 @@ static StackPanel MakeChargeStripReadings() {
     strip.Children().Append(resources);
     winrt::Windows::UI::Xaml::DispatcherTimer timer;
     timer.Interval(std::chrono::milliseconds(1200));
-    timer.Tick([a = winrt::make_weak(batteries), b = winrt::make_weak(resources), last = std::wstring{}](auto const&, auto const&) mutable {
+    timer.Tick([host = winrt::make_weak(strip), a = winrt::make_weak(batteries), b = winrt::make_weak(resources), last = std::wstring{}](auto const&, auto const&) mutable {
         try {
+            auto container = host.get();
             auto battery = a.get();
             auto resource = b.get();
-            if (!battery || !resource) return;
+            if (!container || !battery || !resource) return;
             auto data = ChargeStripReadings();
             if (data == last) return;
             last = data;
@@ -170,6 +172,13 @@ static StackPanel MakeChargeStripReadings() {
                 summary.Children().Append(ChargeStripText(L"PC", 11, 0xEDEBEF));
             resource.Content(summary);
             resource.Visibility(summary.Children().Size() ? Visibility::Visible : Visibility::Collapsed);
+            auto shown = battery.Visibility() == Visibility::Visible || resource.Visibility() == Visibility::Visible;
+            auto visibility = shown ? Visibility::Visible : Visibility::Collapsed;
+            if (container.Visibility() != visibility) {
+                container.Visibility(visibility);
+                g_islandBasePositionValid = false;
+                UpdateIslandPlacement(true);
+            }
         } catch (...) {}
     });
     strip.Loaded([timer](auto const&, auto const&) { timer.Start(); });
