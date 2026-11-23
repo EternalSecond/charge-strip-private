@@ -50,6 +50,8 @@ Choose **Numbers** or **Numbers + bars**, and set the bar color with the palette
 
 Click the battery button to see device names, charge and connection status. Click the resource button to see the selected panel metrics in a two-column dashboard with live readings. Both panels open above the taskbar.
 
+Click a resource card to see up to five processes. CPU uses the share of total CPU time, RAM shows the resident working set, and GPU shows each process's busiest engine. The disk and network cards show an unavailable message in the process view because the overview counters cannot attribute those readings to individual processes or to a specific drive. Use Back or Escape to return to the overview.
+
 Run `windhawk\Build-IslandMedia.ps1` from PowerShell to build the integration against the installed mod source. Run `windhawk\Set-IslandMediaLibrary.ps1` once as administrator to apply it. Use its `-Restore` switch to restore the original Windhawk library. The integration preserves the original MIT attribution and requires Windhawk for this mode.
 
 ## Device compatibility

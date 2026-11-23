@@ -13,9 +13,14 @@ using System.Runtime.InteropServices;
 internal sealed class ReadingsFlyout : Form
 {
     private readonly Strip strip;
-    private readonly int count, columns, logicalWidth, logicalHeight;
+    private readonly int count, columns, logicalWidth, overviewHeight;
+    private int logicalHeight;
     private readonly Point anchor;
     private readonly System.Windows.Forms.Timer dismiss = new System.Windows.Forms.Timer { Interval = 35 };
+    private readonly System.Windows.Forms.Timer refreshRanking = new System.Windows.Forms.Timer { Interval = 1200 };
+    private ProcessRanking ranking, sampling;
+    private RankedProcess[] ranked;
+    private bool escapeDown;
     internal bool Battery { get; private set; }
 
     internal ReadingsFlyout(Strip strip, bool battery, Point anchor)
@@ -27,7 +32,7 @@ internal sealed class ReadingsFlyout : Form
         count = battery ? strip.Readings.Count : strip.Current.VisibleMetrics(false).Count();
         columns = !battery && count > 1 ? 2 : 1;
         logicalWidth = battery ? 340 : 322;
-        logicalHeight = 54 + Math.Max(1, (count + columns - 1) / columns) * (battery ? 58 : 52);
+        overviewHeight = logicalHeight = 54 + Math.Max(1, (count + columns - 1) / columns) * (battery ? 58 : 52);
         FormBorderStyle = FormBorderStyle.None;
         StartPosition = FormStartPosition.Manual;
         ShowInTaskbar = false;
@@ -35,10 +40,17 @@ internal sealed class ReadingsFlyout : Form
         DoubleBuffered = true;
         BackColor = Color.FromArgb(19, 23, 26);
         Place(96);
+        refreshRanking.Tick += async (sender, args) => await UpdateRanking();
         dismiss.Tick += (sender, args) =>
         {
-            if ((GetAsyncKeyState(27) & 0x8000) != 0 ||
-                (((GetAsyncKeyState(1) | GetAsyncKeyState(2)) & 0x8000) != 0 &&
+            bool down = (GetAsyncKeyState(27) & 0x8000) != 0;
+            if (down && !escapeDown)
+            {
+                if (ranking != null) ShowOverview();
+                else Close();
+            }
+            escapeDown = down;
+            if ((((GetAsyncKeyState(1) | GetAsyncKeyState(2)) & 0x8000) != 0 &&
                 !Bounds.Contains(Cursor.Position) && Math.Abs(Cursor.Position.X - anchor.X) > 18))
                 Close();
         };
@@ -89,6 +101,11 @@ internal sealed class ReadingsFlyout : Form
         using (var truncate = new StringFormat { FormatFlags = StringFormatFlags.NoWrap, Trimming = StringTrimming.EllipsisCharacter })
         {
             g.DrawPath(frame, outline);
+            if (ranking != null)
+            {
+                DrawRanking(g, heading, label, value, ink, muted, tileFill, rail, truncate);
+                return;
+            }
             g.DrawString(Text, heading, ink, 17, 14);
             var batteries = strip.Readings;
             var metrics = strip.Current.VisibleMetrics(false).ToArray();
@@ -122,6 +139,99 @@ internal sealed class ReadingsFlyout : Form
         }
     }
 
+    protected override async void OnMouseUp(MouseEventArgs e)
+    {
+        base.OnMouseUp(e);
+        if (Battery || e.Button != MouseButtons.Left) return;
+        float x = e.X * logicalWidth / (float)Width, y = e.Y * logicalHeight / (float)Height;
+        if (ranking != null)
+        {
+            if (x < 82 && y < 41) ShowOverview();
+            return;
+        }
+        var metrics = strip.Current.VisibleMetrics(false).Take(count).ToArray();
+        int width = (logicalWidth - 34 - (columns - 1) * 8) / columns;
+        for (int i = 0; i < metrics.Length; i++)
+        {
+            if (!new RectangleF(17 + i % columns * (width + 8), 40 + i / columns * 52, width, 45).Contains(x, y)) continue;
+            ranking = new ProcessRanking(metrics[i]);
+            ranked = null;
+            logicalHeight = 294;
+            Place(DeviceDpi);
+            Invalidate();
+            refreshRanking.Start();
+            await UpdateRanking();
+            return;
+        }
+    }
+
+    private async Task UpdateRanking()
+    {
+        if (sampling != null || ranking == null || !ranking.Supported) return;
+        var active = sampling = ranking;
+        try
+        {
+            var data = await Task.Run(() => active.Read());
+            if (ReferenceEquals(ranking, active) && !IsDisposed)
+            {
+                ranked = data;
+                Invalidate();
+            }
+        }
+        finally
+        {
+            sampling = null;
+            if (!ReferenceEquals(ranking, active)) active.Dispose();
+        }
+    }
+
+    private void ClearRanking()
+    {
+        refreshRanking.Stop();
+        if (ranking != null && !ReferenceEquals(ranking, sampling)) ranking.Dispose();
+        ranking = null;
+    }
+
+    private void ShowOverview()
+    {
+        ClearRanking();
+        logicalHeight = overviewHeight;
+        Place(DeviceDpi);
+        Invalidate();
+    }
+
+    private void DrawRanking(Graphics g, Font heading, Font label, Font value, Brush ink, Brush muted, Brush tileFill,
+        Brush rail, StringFormat truncate)
+    {
+        var metric = ranking.Metric;
+        g.DrawString("‹ Back", label, ink, 18, 14);
+        g.DrawString(Localize.Text("en", ResourceMetrics.Label(metric)), heading, ink, 84, 12);
+        if (!ranking.Supported || ranked == null || ranked.Length == 0)
+        {
+            string message = !ranking.Supported || (ranked != null && ranked.Length == 0)
+                ? "Per-process readings unavailable." : "Collecting process readings…";
+            g.DrawString(message, label, muted, 18, 54);
+            return;
+        }
+        using (var accent = new SolidBrush(Accent(metric, null)))
+        using (var right = new StringFormat { Alignment = StringAlignment.Far })
+        {
+            double peak = ranked[0].Amount;
+            for (int i = 0; i < ranked.Length; i++)
+            {
+                int y = 42 + i * 47;
+                var process = ranked[i];
+                using (var tile = StripAppearance.Rounded(new RectangleF(17, y, logicalWidth - 34, 40), 10))
+                    g.FillPath(tileFill, tile);
+                g.DrawString(process.Name, label, ink, new RectangleF(28, y + 8, 174, 19), truncate);
+                g.DrawString(process.Format(metric), value, ink, new RectangleF(185, y + 5, logicalWidth - 211, 22), right);
+                g.FillRectangle(rail, 28, y + 31, logicalWidth - 56, 3);
+                if (peak > 0)
+                    g.FillRectangle(accent, 28, y + 31, (float)((logicalWidth - 56) * process.Amount / peak), 3);
+            }
+        }
+    }
+
     private static Color Accent(ResourceMetric metric, double? level)
     {
         switch (metric)
@@ -138,7 +248,12 @@ internal sealed class ReadingsFlyout : Form
 
     protected override void Dispose(bool disposing)
     {
-        if (disposing) dismiss.Dispose();
+        if (disposing)
+        {
+            dismiss.Dispose();
+            ClearRanking();
+            refreshRanking.Dispose();
+        }
         base.Dispose(disposing);
     }
 
@@ -147,6 +262,79 @@ internal sealed class ReadingsFlyout : Form
 
 [Flags]
 public enum ResourceMetric { None = 0, Cpu = 1, Ram = 2, Gpu = 4, Disk = 8, Download = 16, Upload = 32 }
+
+internal sealed class RankedProcess
+{
+    internal readonly string Name;
+    internal readonly double Amount;
+
+    internal RankedProcess(string name, int pid, double amount)
+    {
+        Name = name + " (" + pid + ")";
+        Amount = amount;
+    }
+
+    internal string Format(ResourceMetric metric)
+    {
+        if (metric != ResourceMetric.Ram) return Amount < .1 ? "<0.1%" : Amount.ToString("0.0") + "%";
+        return Amount >= 1073741824 ? (Amount / 1073741824).ToString("0.00") + " GiB" :
+            (Amount / 1048576).ToString("0.0") + " MiB";
+    }
+}
+
+internal sealed class ProcessRanking : IDisposable
+{
+    private readonly GpuSampler gpu = new GpuSampler();
+    private Dictionary<int, Tuple<long, double>> previousCpu = new Dictionary<int, Tuple<long, double>>();
+    private long previousTime;
+    internal readonly ResourceMetric Metric;
+    internal bool Supported { get { return Metric == ResourceMetric.Cpu || Metric == ResourceMetric.Ram || Metric == ResourceMetric.Gpu; } }
+
+    internal ProcessRanking(ResourceMetric metric) { Metric = metric; }
+
+    internal RankedProcess[] Read()
+    {
+        var results = new List<RankedProcess>();
+        var cpu = new Dictionary<int, Tuple<long, double>>();
+        long now = Stopwatch.GetTimestamp();
+        double elapsed = (now - previousTime) / (double)Stopwatch.Frequency;
+        bool warming = Metric == ResourceMetric.Cpu && previousTime == 0;
+        var gpuProcesses = Metric == ResourceMetric.Gpu ? new Dictionary<int, double>() : null;
+        if (gpuProcesses != null && !gpu.Read(gpuProcesses).HasValue)
+            return gpu.Pending ? null : new RankedProcess[0];
+        foreach (var process in Process.GetProcesses())
+        {
+            using (process)
+            {
+                try
+                {
+                    int pid = process.Id;
+                    if (pid == 0) continue;
+                    double amount;
+                    if (Metric == ResourceMetric.Ram) amount = process.WorkingSet64;
+                    else if (Metric == ResourceMetric.Cpu)
+                    {
+                        var snapshot = Tuple.Create(process.StartTime.Ticks, process.TotalProcessorTime.TotalSeconds);
+                        cpu[pid] = snapshot;
+                        Tuple<long, double> before;
+                        if (!previousCpu.TryGetValue(pid, out before) || before.Item1 != snapshot.Item1 || elapsed <= 0)
+                            continue;
+                        amount = Math.Min(100, 100 * (snapshot.Item2 - before.Item2) / (elapsed * Environment.ProcessorCount));
+                    }
+                    else if (!gpuProcesses.TryGetValue(pid, out amount)) continue;
+                    if (amount > 0) results.Add(new RankedProcess(process.ProcessName, pid, amount));
+                }
+                catch (System.ComponentModel.Win32Exception) { }
+                catch (InvalidOperationException) { }
+            }
+        }
+        previousCpu = cpu;
+        previousTime = now;
+        return warming ? null : results.OrderByDescending(process => process.Amount).Take(5).ToArray();
+    }
+
+    public void Dispose() { gpu.Dispose(); }
+}
 
 internal static class ResourceMetrics
 {
@@ -352,9 +540,11 @@ internal sealed class GpuSampler : IDisposable
     private const uint MoreData = 0x800007D2;
     private IntPtr query, counter;
     private bool sampled;
+    internal bool Pending { get; private set; }
 
-    internal double? Read()
+    internal double? Read(Dictionary<int, double> processes = null)
     {
+        Pending = false;
         if (query == IntPtr.Zero)
         {
             IntPtr opened;
@@ -368,7 +558,7 @@ internal sealed class GpuSampler : IDisposable
         }
 
         if (PdhCollectQueryData(query) != 0) return null;
-        if (!sampled) { sampled = true; return null; }
+        if (!sampled) { sampled = true; Pending = true; return null; }
 
         uint size = 0, count = 0;
         if (PdhGetFormattedCounterArray(counter, 0x00008200, ref size, ref count, IntPtr.Zero) != MoreData ||
@@ -391,6 +581,16 @@ internal sealed class GpuSampler : IDisposable
                 double existing;
                 engines.TryGetValue(engine, out existing);
                 engines[engine] = existing + item.Value;
+                if (processes != null && instance.StartsWith("pid_", StringComparison.OrdinalIgnoreCase))
+                {
+                    int end = instance.IndexOf('_', 4), pid;
+                    if (end > 4 && int.TryParse(instance.Substring(4, end - 4), out pid))
+                    {
+                        double highest;
+                        processes.TryGetValue(pid, out highest);
+                        processes[pid] = Math.Min(100, Math.Max(highest, item.Value));
+                    }
+                }
             }
             // Task Manager-style summary: use the busiest hardware engine, not a sum across engines.
             return engines.Count == 0 ? (double?)null : Math.Min(100, engines.Values.Max());
