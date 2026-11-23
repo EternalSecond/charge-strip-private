@@ -41,6 +41,7 @@ internal sealed class Strip : ApplicationContext
     private readonly ResourcesModule resources;
     private readonly MediaModule media;
     private readonly ModuleStrip surface;
+    private readonly ArctisLowBatteryAlert arctisAlert = new ArctisLowBatteryAlert();
     private ReadingsFlyout readingsFlyout;
     private readonly System.Windows.Forms.Timer timer = new System.Windows.Forms.Timer { Interval = 12000 };
     private readonly System.Windows.Forms.Timer inputTimer = new System.Windows.Forms.Timer { Interval = 150 };
@@ -321,6 +322,7 @@ internal sealed class Strip : ApplicationContext
                 rows.Count(row => row.Name.StartsWith("Arctis Nova Pro Wireless", StringComparison.Ordinal) &&
                     row.Percent.HasValue) < 2;
             timer.Interval = waitingForArctis && quickBatteryRetries-- > 0 ? 3000 : 12000;
+            if (Current.ModuleVisible("batteries")) arctisAlert.Update(rows, Current.Language);
             ApplySettings();
         }
         finally { polling = false; }
@@ -334,6 +336,7 @@ internal sealed class Strip : ApplicationContext
             if (editor != null) editor.Dispose();
             if (readingsFlyout != null) readingsFlyout.Dispose();
             timer.Dispose();
+            arctisAlert.Dispose();
             inputTimer.Dispose();
             surface.Dispose();
             resources.Dispose();

@@ -66,6 +66,8 @@ Run `windhawk\Build-IslandMedia.ps1` from PowerShell to build the integration ag
 
 A dash means a detected device has no available reading. Check that the device is powered on, awake and connected through a supported receiver or Bluetooth mode.
 
+Charge Strip sends one Windows notification when the Arctis headset reaches 25% or below while discharging. The alert rearms at 35%, and an unknown reading or an app restart preserves the current alert cycle.
+
 ## Settings, updates and removal
 
 Preferences are stored per user in `%LOCALAPPDATA%\Charge Strip\settings.xml`. Charge Strip reads battery data locally and has no telemetry.

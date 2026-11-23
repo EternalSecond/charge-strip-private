@@ -1,6 +1,7 @@
 ﻿using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Drawing;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -212,4 +213,56 @@ internal static class Batteries
     private static extern bool HidD_FreePreparsedData(IntPtr data);
     [DllImport("hid.dll")]
     private static extern int HidP_GetCaps(IntPtr data, [Out] ushort[] caps);
+}
+
+internal sealed class ArctisLowBatteryAlert : IDisposable
+{
+    private readonly string stateFile = Path.Combine(StripSettings.Folder, "arctis-low-charge");
+    private readonly NotifyIcon icon = new NotifyIcon { Icon = SystemIcons.Warning, Text = "Charge Strip" };
+    private readonly Timer hide = new Timer { Interval = 12000 };
+    private bool notified;
+
+    internal ArctisLowBatteryAlert()
+    {
+        notified = File.Exists(stateFile);
+        hide.Tick += (sender, args) => { icon.Visible = false; hide.Stop(); };
+    }
+
+    internal static bool IsLowCycle(bool previous, BatteryReading row)
+    {
+        if (row == null || !row.Percent.HasValue) return previous;
+        if (previous) return row.Percent.Value < 35;
+        return row.Percent.Value <= 25 && row.Status != "Заряджається";
+    }
+
+    internal void Update(IEnumerable<BatteryReading> rows, string language)
+    {
+        var headset = rows.FirstOrDefault(row => row.Name == "Arctis Nova Pro Wireless · гарнітура");
+        bool previouslyNotified = notified;
+        notified = IsLowCycle(notified, headset);
+        if (previouslyNotified == notified) return;
+        try
+        {
+            if (notified)
+            {
+                Directory.CreateDirectory(StripSettings.Folder);
+                File.WriteAllText(stateFile, "1");
+            }
+            else File.Delete(stateFile);
+        }
+        catch (IOException) { }
+        catch (UnauthorizedAccessException) { }
+        if (!notified) return;
+        icon.Visible = true;
+        icon.ShowBalloonTip(7000, Localize.Text(language, "Низький заряд"),
+            Localize.Text(language, headset.Name) + " · " + headset.Level, ToolTipIcon.Warning);
+        hide.Stop();
+        hide.Start();
+    }
+
+    public void Dispose()
+    {
+        hide.Dispose();
+        icon.Dispose();
+    }
 }
