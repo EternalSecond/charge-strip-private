@@ -1,8 +1,8 @@
-﻿# Charge Strip
+# Charge Strip
 
-A portable Windows 11 taskbar strip for device batteries, media controls, and PC resources. The latest release download and screenshots below show the earlier tray layout. Build from source to try the shared strip.
+A portable Windows 11 taskbar strip for device batteries, media controls, and PC resources. The screenshots below show the earlier tray layout.
 
-[**Download for Windows 11 x64**](https://github.com/EternalSecond/charge-strip/releases/latest/download/Charge-Strip-Windows-x64.zip) · [Release notes and checksum](https://github.com/EternalSecond/charge-strip/releases/latest) · [Changelog](CHANGELOG.md)
+[**Windows 11 x64 releases**](https://github.com/EternalSecond/charge-strip-private/releases) · [Changelog](CHANGELOG.md)
 
 ![Charge Strip open on Windows 11, showing real mouse and headset battery levels](docs/tray-popup-windows.png)
 
